@@ -1,0 +1,13 @@
+                   List of relations
+ Schema |       Name        | Type  |       Owner       
+--------+-------------------+-------+-------------------
+ public | Account           | table | editor_canva_user
+ public | ApiKey            | table | editor_canva_user
+ public | GeneratedImage    | table | editor_canva_user
+ public | Project           | table | editor_canva_user
+ public | Session           | table | editor_canva_user
+ public | Template          | table | editor_canva_user
+ public | User              | table | editor_canva_user
+ public | VerificationToken | table | editor_canva_user
+(8 rows)
+

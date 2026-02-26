@@ -1,0 +1,46 @@
+Creative Automation SaaS (Placid.app Alternative)
+Planning
+ Research Placid.app features
+Write implementation plan
+ Get user approval
+Phase 1 — Project Scaffold
+ Initialize Next.js 14 project (App Router)
+ Set up Prisma + PostgreSQL (via Supabase or local)
+ Set up NextAuth.js for authentication
+ Configure Stripe for billing
+ Set up Tailwind CSS + shadcn/ui
+Phase 2 — Core: Template Editor
+ Canvas editor with Fabric.js (drag-and-drop)
+ Layer panel (text, image, shape, background layers)
+ Text layer: font, size, color, position
+ Image layer: upload, URL, dynamic placeholder
+ Shape layer: rectangles, circles
+ Save/load template JSON to database
+ Template library (grid view, create, duplicate, delete)
+Phase 3 — Image Generation Engine
+ Server-side rendering with Puppeteer (HTML → PNG/JPEG/PDF)
+ REST API endpoint: POST /api/v1/images
+ Accept template_id + dynamic variables
+ Return image URL (stored in Cloudinary or S3)
+ Rate limiting per plan
+Phase 4 — User Dashboard
+ Projects page (organize templates by project)
+ API Keys management page
+ Usage stats (API calls this month)
+ Team members (optional)
+Phase 5 — Auth & Billing
+ Sign up / Sign in (email + Google OAuth)
+ Pricing page (Free / Pro / Business tiers)
+ Stripe checkout + webhooks
+ Plan limits enforcement
+Phase 6 — Landing Page
+ Hero section
+ Features section
+ Pricing section
+ CTA + footer
+Verification
+ Test template editor (create/save/load)
+ Test API image generation
+ Test auth flow
+ Test Stripe billing flow
+ Browser walkthrough recording

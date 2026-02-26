@@ -1,0 +1,158 @@
+Creative Automation SaaS — Implementation Plan
+A cheaper, fully-featured alternative to Placid.app — a platform to auto-generate images, PDFs, and videos from custom drag-and-drop templates via API.
+
+User Review Required
+IMPORTANT
+
+Tech Stack Choices — Please confirm or adjust:
+
+Framework: Next.js 14 (App Router + API routes)
+Database: PostgreSQL via Supabase (free hosted tier)
+Auth: NextAuth.js (email + Google OAuth)
+Payments: Stripe
+Image Generation: Puppeteer (renders HTML template → PNG/JPEG/PDF)
+File Storage: Cloudinary (free tier for generated images)
+Canvas Editor: Fabric.js (drag-and-drop template editor in browser)
+Styling: Tailwind CSS + shadcn/ui
+WARNING
+
+Puppeteer requires a headless Chrome install on the server. This works fine locally and on most VPS/cloud servers (Railway, Render, Fly.io), but not on Vercel's serverless functions (use Vercel Edge or a dedicated server for generation).
+
+NOTE
+
+Pricing tiers (suggested, you can change):
+
+Plan	Price	API Calls/mo	Templates
+Free	$0	100	3
+Pro	$9/mo	5,000	Unlimited
+Business	$29/mo	25,000	Unlimited
+Placid charges ~$19/mo for 3,000 images — we undercut significantly.			
+Proposed Changes
+1. Project Scaffold
+[NEW] Next.js 14 App (entire project)
+editor_canva/
+├── app/
+│   ├── (marketing)/         # Landing page, pricing
+│   ├── (auth)/              # Sign in, sign up
+│   ├── (dashboard)/         # Templates, projects, API keys, usage
+│   │   ├── templates/
+│   │   ├── editor/[id]/     # Canvas editor
+│   │   ├── api-keys/
+│   │   └── settings/
+│   ├── api/
+│   │   ├── auth/            # NextAuth
+│   │   ├── v1/images/       # Public generation API
+│   │   ├── templates/       # CRUD
+│   │   └── stripe/          # Webhooks
+│   └── layout.tsx
+├── components/
+│   ├── editor/              # Canvas editor components
+│   ├── ui/                  # shadcn/ui components
+│   └── dashboard/
+├── lib/
+│   ├── db.ts                # Prisma client
+│   ├── auth.ts              # NextAuth config
+│   ├── stripe.ts            # Stripe client
+│   ├── cloudinary.ts        # Upload helper
+│   └── generator.ts         # Puppeteer image generation
+├── prisma/
+│   └── schema.prisma
+└── public/
+2. Database Schema (Prisma)
+[NEW] prisma/schema.prisma
+Key models:
+
+User — id, email, name, plan (free/pro/business), stripeCustomerId, apiCallsThisMonth
+ApiKey — id, userId, key (hashed), name, createdAt
+Project — id, userId, name
+Template — id, projectId, name, canvasJson (JSON, the Fabric.js canvas state), width, height, previewUrl
+GeneratedImage — id, templateId, variables (JSON), imageUrl, createdAt
+3. Template Editor (Fabric.js Canvas)
+[NEW] app/(dashboard)/editor/[id]/page.tsx
+[NEW] components/editor/Canvas.tsx
+[NEW] components/editor/LayerPanel.tsx
+[NEW] components/editor/PropertiesPanel.tsx
+[NEW] components/editor/Toolbar.tsx
+The editor will have:
+
+Left panel: layer list (add text, image, shape, background)
+Center: Fabric.js canvas (drag, resize, rotate layers)
+Right panel: properties (font, color, size, dynamic variable binding like {{name}})
+Top bar: template name, save, preview, back
+Dynamic variable binding: any text layer can contain {{variable_name}} which gets replaced at generation time.
+
+4. Image Generation API
+[NEW] app/api/v1/images/route.ts
+POST /api/v1/images
+Authorization: Bearer <api_key>
+{
+  "template_id": "abc123",
+  "modifications": {
+    "name": "John Doe",
+    "title": "Software Engineer",
+    "avatar": "https://example.com/photo.jpg"
+  },
+  "format": "png"  // png | jpeg | pdf
+}
+→ { "image_url": "https://res.cloudinary.com/..." }
+Generation flow:
+
+Validate API key → get user → check plan limits
+Load template JSON from DB
+Inject modifications into template variables
+Render HTML page with Fabric.js canvas → Puppeteer screenshot
+Upload to Cloudinary → return URL
+Increment user's apiCallsThisMonth
+5. Auth (NextAuth.js)
+[NEW] app/api/auth/[...nextauth]/route.ts
+[NEW] lib/auth.ts
+Providers: Email (magic link) + Google OAuth
+
+6. Stripe Billing
+[NEW] app/(marketing)/pricing/page.tsx
+[NEW] app/api/stripe/checkout/route.ts
+[NEW] app/api/stripe/webhook/route.ts
+[NEW] lib/stripe.ts
+Pricing page with 3 tier cards
+Stripe Checkout for upgrades
+Webhook updates user plan in DB on checkout.session.completed
+7. Dashboard Pages
+[NEW] app/(dashboard)/templates/page.tsx — Grid of all templates
+[NEW] app/(dashboard)/api-keys/page.tsx — Generate/revoke API keys
+[NEW] app/(dashboard)/usage/page.tsx — Charts of API usage
+[NEW] app/(dashboard)/settings/page.tsx — Profile, plan, billing portal
+8. Landing Page
+[NEW] app/(marketing)/page.tsx
+Sections:
+
+Hero — animated canvas demo, CTA "Start for free"
+How it works — 3 steps: Design → Automate → Scale
+Features — Image API, PDF, template editor, integrations
+Pricing — the 3-tier table
+Footer
+Verification Plan
+Automated Tests
+None initially — we'll verify manually via browser.
+
+Manual Verification (in-browser)
+Landing page: npm run dev → open http://localhost:3000 — verify hero, features, pricing sections render correctly.
+
+Auth: Click "Get started" → sign up with email → verify redirect to dashboard.
+
+Template Editor:
+
+Create new template
+Add a text layer with content Hello {{name}}
+Add a background color
+Save template
+Verify it appears in the templates list
+API Image Generation:
+
+Copy API key from the API Keys page
+Run: curl -X POST http://localhost:3000/api/v1/images -H "Authorization: Bearer <key>" -H "Content-Type: application/json" -d '{"template_id":"<id>","modifications":{"name":"World"}}'
+Verify a generated image URL is returned and image is viewable
+Stripe Billing:
+
+Click "Upgrade to Pro" on the pricing page
+Use Stripe test card 4242 4242 4242 4242
+Verify plan updates to "Pro" in dashboard
