@@ -1,0 +1,49 @@
+{
+  "name": "n8n-nodes-renderify",
+  "version": "0.1.0",
+  "description": "n8n community node for Renderify — template-based image generation API",
+  "keywords": [
+    "n8n-community-node-package",
+    "n8n",
+    "renderify",
+    "image-generation"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/your-org/n8n-nodes-renderify",
+  "author": {
+    "name": "Renderify"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/n8n-nodes-renderify.git"
+  },
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc --project tsconfig.json && npm run copy-icons",
+    "copy-icons": "copyfiles -u 2 nodes/**/*.svg dist/",
+    "dev": "tsc --project tsconfig.json --watch",
+    "lint": "eslint nodes credentials --ext .ts",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "dist"
+  ],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "dist/credentials/RenderifyApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/Renderify/Renderify.node.js"
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "copyfiles": "^2.4.1",
+    "n8n-workflow": "*",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "n8n-workflow": "*"
+  }
+}

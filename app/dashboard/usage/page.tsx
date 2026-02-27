@@ -2,15 +2,28 @@
 
 import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
-import { Loader2, Zap, TrendingUp, Clock } from "lucide-react"
+import {
+  BarChart, Bar,
+  LineChart, Line,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from "recharts"
+import { Loader2, Zap, TrendingUp, Clock, BarChart2, Activity, FileText } from "lucide-react"
+
+type Tab = "calls" | "responseTime"
+
+interface TopTemplate {
+  templateId: string
+  name: string
+  calls: number
+}
 
 interface StatsData {
   plan: string
   apiCallsThisMonth: number
   limit: number
   resetAt: string
-  dailyData: Array<{ date: string; calls: number }>
+  dailyData: Array<{ date: string; calls: number; averageMs: number }>
+  topTemplates: TopTemplate[]
 }
 
 const PLAN_COLORS: Record<string, string> = {
@@ -23,6 +36,7 @@ export default function UsagePage() {
   const [stats, setStats] = useState<StatsData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState("")
+  const [activeTab, setActiveTab] = useState<Tab>("calls")
 
   useEffect(() => {
     fetch("/api/user/stats")
@@ -122,39 +136,133 @@ export default function UsagePage() {
       {/* daily chart */}
       <Card>
         <CardHeader>
-          <CardTitle>API Calls — Last 30 Days</CardTitle>
-          <CardDescription>
-            {stats.dailyData.reduce((s, d) => s + d.calls, 0).toLocaleString()} total calls in this period
-          </CardDescription>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <CardTitle>
+                {activeTab === "calls" ? "API Calls — Last 30 Days" : "Avg. Response Time — Last 30 Days"}
+              </CardTitle>
+              <CardDescription className="mt-0.5">
+                {activeTab === "calls"
+                  ? `${stats.dailyData.reduce((s, d) => s + d.calls, 0).toLocaleString()} total calls in this period`
+                  : `Average render latency over the last 30 days`}
+              </CardDescription>
+            </div>
+            {/* Tab switcher */}
+            <div className="flex items-center gap-1 rounded-lg border bg-muted p-1 shrink-0">
+              <button
+                onClick={() => setActiveTab("calls")}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                  activeTab === "calls"
+                    ? "bg-white shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <BarChart2 className="h-3.5 w-3.5" />
+                API Calls
+              </button>
+              <button
+                onClick={() => setActiveTab("responseTime")}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                  activeTab === "responseTime"
+                    ? "bg-white shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Activity className="h-3.5 w-3.5" />
+                Response Time
+              </button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
-          {stats.dailyData.every((d) => d.calls === 0) ? (
-            <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
-              <Zap className="h-10 w-10 mb-3 opacity-30" />
-              <p>No API calls yet in the last 30 days.</p>
-              <p className="text-sm mt-1">Make your first call using an API key.</p>
-            </div>
+          {activeTab === "calls" ? (
+            stats.dailyData.every((d) => d.calls === 0) ? (
+              <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
+                <Zap className="h-10 w-10 mb-3 opacity-30" />
+                <p>No API calls yet in the last 30 days.</p>
+                <p className="text-sm mt-1">Make your first call using an API key.</p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={stats.dailyData} margin={{ top: 0, right: 0, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} interval={4} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{ borderRadius: 8, fontSize: 13 }}
+                    formatter={(v: number) => [`${v} call${v !== 1 ? "s" : ""}`, "API Calls"]}
+                  />
+                  <Bar dataKey="calls" fill="#7c3aed" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )
           ) : (
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={stats.dailyData} margin={{ top: 0, right: 0, left: -10, bottom: 0 }}>
+              <LineChart data={stats.dailyData} margin={{ top: 4, right: 8, left: -10, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis
-                  dataKey="date"
+                <XAxis dataKey="date" tick={{ fontSize: 11 }} interval={4} tickLine={false} />
+                <YAxis
                   tick={{ fontSize: 11 }}
-                  interval={4}
                   tickLine={false}
+                  axisLine={false}
+                  unit="ms"
+                  domain={["auto", "auto"]}
                 />
-                <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} allowDecimals={false} />
                 <Tooltip
                   contentStyle={{ borderRadius: 8, fontSize: 13 }}
-                  formatter={(v: number) => [`${v} call${v !== 1 ? "s" : ""}`, "API Calls"]}
+                  formatter={(v: number) => [`${v} ms`, "Avg. Response Time"]}
                 />
-                <Bar dataKey="calls" fill="#7c3aed" radius={[4, 4, 0, 0]} />
-              </BarChart>
+                <Line
+                  type="monotone"
+                  dataKey="averageMs"
+                  stroke="#7c3aed"
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                />
+              </LineChart>
             </ResponsiveContainer>
           )}
         </CardContent>
       </Card>
+
+      {/* top templates */}
+      {stats.topTemplates.length > 0 && (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="h-4 w-4 text-muted-foreground" />
+              Top Templates — Last 30 Days
+            </CardTitle>
+            <CardDescription>Most-rendered templates in this period</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <ul className="divide-y">
+              {stats.topTemplates.map((t, i) => {
+                const maxCalls = stats.topTemplates[0].calls
+                const pct = maxCalls > 0 ? (t.calls / maxCalls) * 100 : 0
+                return (
+                  <li key={t.templateId} className="flex items-center gap-4 px-6 py-4">
+                    <span className="text-sm font-bold text-muted-foreground w-4 shrink-0">{i + 1}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{t.name}</p>
+                      <div className="mt-1.5 h-1.5 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-violet-500 transition-all"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                    <span className="text-sm font-semibold tabular-nums shrink-0">
+                      {t.calls.toLocaleString()} <span className="font-normal text-muted-foreground text-xs">calls</span>
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

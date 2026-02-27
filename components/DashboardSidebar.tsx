@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import {
   LayoutDashboard, FileText, Key, Settings, LogOut,
-  TrendingUp, Image as ImageIcon, Menu, X,
+  TrendingUp, Image as ImageIcon, Menu, X, Webhook,
 } from "lucide-react"
 
 const NAV_LINKS = [
@@ -15,6 +15,7 @@ const NAV_LINKS = [
   { href: "/dashboard/images",    icon: ImageIcon,        label: "Images" },
   { href: "/dashboard/api-keys",  icon: Key,              label: "API Keys" },
   { href: "/dashboard/usage",     icon: TrendingUp,       label: "Usage" },
+  { href: "/dashboard/webhooks",  icon: Webhook,          label: "Webhooks" },
   { href: "/dashboard/settings",  icon: Settings,         label: "Settings" },
 ]
 

@@ -37,8 +37,11 @@ import {
   Download,
   Lock,
   Maximize2,
+  Grid3x3,
+  Layers,
+  Ungroup,
 } from "lucide-react"
-import { Canvas, IText, Rect, Circle, FabricImage, type FabricObject } from "fabric"
+import { Canvas, IText, Rect, Circle, FabricImage, Group, type FabricObject } from "fabric"
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -134,6 +137,7 @@ function LayerIcon({ type }: { type: string | undefined }) {
   if (type === "image") return <ImageIcon className="h-3 w-3 text-gray-400 shrink-0" />
   if (type === "rect") return <Square className="h-3 w-3 text-gray-400 shrink-0" />
   if (type === "circle") return <CircleIcon className="h-3 w-3 text-gray-400 shrink-0" />
+  if (type === "group") return <Layers className="h-3 w-3 text-violet-400 shrink-0" />
   return <Square className="h-3 w-3 text-gray-400 shrink-0" />
 }
 
@@ -157,6 +161,7 @@ export default function EditorPage() {
   const [template, setTemplate] = useState<Template | null>(null)
   const [templateName, setTemplateName] = useState("")
   const [selectedObject, setSelectedObject] = useState<FabricObject | null>(null)
+  const [objRev, setObjRev] = useState(0)
   const [layers, setLayers] = useState<FabricObject[]>([])
   const [isSaving, setIsSaving] = useState(false)
   const [zoom, setZoom] = useState(100)
@@ -169,13 +174,27 @@ export default function EditorPage() {
   const [imgDpi, setImgDpi] = useState<"72" | "96" | "150" | "300">("96")
   const [pdfQuality, setPdfQuality] = useState(90)
   const [pdfDpi, setPdfDpi] = useState<"72" | "96" | "150" | "300">("150")
+  const [snapToGrid, setSnapToGrid] = useState(false)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+  const dragSrcIndexRef = useRef<number | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const historyRef = useRef<string[]>([])
+  const histIndexRef = useRef(-1)
+  const isLoadingHistoryRef = useRef(false)
+  const clipboardRef = useRef<FabricObject | null>(null)
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; hasSelection: boolean; hasClipboard: boolean } | null>(null)
 
-  // ── test modal state ─────────────────────────────────────────────────────
-  const [showTestModal, setShowTestModal] = useState(false)
-  const [testVars, setTestVars] = useState<Record<string, string>>({})
-  const [testImageUrl, setTestImageUrl] = useState<string | null>(null)
-  const [testLoading, setTestLoading] = useState(false)
-  const [testError, setTestError] = useState("")
+  // ── variables panel state ────────────────────────────────────────────────
+  const [rightPanelTab, setRightPanelTab] = useState<"properties" | "variables">("properties")
+  const [varValues, setVarValues] = useState<Record<string, string>>({})
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState("")
+  const [editingLayerObj, setEditingLayerObj] = useState<FabricObject | null>(null)
+  const [editLayerName, setEditLayerName] = useState("")
+  const [isEditingName, setIsEditingName] = useState(false)
+  const [canvasBg, setCanvasBg] = useState("#ffffff")
+  const [bgTransparent, setBgTransparent] = useState(false)
 
   async function handleDeleteTemplate() {
     setIsDeleting(true)
@@ -196,6 +215,11 @@ export default function EditorPage() {
     selectedObject?.type === "rect" || selectedObject?.type === "circle"
   const isImage = selectedObject?.type === "image"
   const obj = selectedObject as any
+  const isMultiSelect = (selectedObject as any)?.type === "activeselection"
+  const multiSelectCount = isMultiSelect ? ((selectedObject as any)?._objects?.length ?? 0) : 0
+  const isGroup = selectedObject?.type === "group"
+  const imgScaling: string = (obj as any)?.__imgScaling ?? "fill"
+  const shrinkToFit: boolean = !!(obj as any)?.__shrinkToFit
 
   // ── load template ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -225,21 +249,45 @@ export default function EditorPage() {
 
     const updateLayers = () => setLayers([...(canvas.getObjects() ?? [])])
 
-    canvas.on("object:added", updateLayers)
-    canvas.on("object:removed", updateLayers)
-    canvas.on("object:modified", updateLayers)
-    canvas.on("selection:created", (e) => setSelectedObject(e.selected?.[0] ?? null))
-    canvas.on("selection:updated", (e) => setSelectedObject(e.selected?.[0] ?? null))
+    // ── history ────────────────────────────────────────────────────────────
+    const pushHistory = () => {
+      if (isLoadingHistoryRef.current) return
+      historyRef.current = historyRef.current.slice(0, histIndexRef.current + 1)
+      historyRef.current.push(JSON.stringify(canvas.toJSON()))
+      histIndexRef.current = historyRef.current.length - 1
+      setCanUndo(histIndexRef.current > 0)
+      setCanRedo(false)
+    }
+
+    canvas.on("object:added", () => { updateLayers(); pushHistory() })
+    canvas.on("object:removed", () => { updateLayers(); pushHistory() })
+    canvas.on("object:modified", () => { updateLayers(); pushHistory() })
+    canvas.on("selection:created", () => setSelectedObject(canvas.getActiveObject() ?? null))
+    canvas.on("selection:updated", () => setSelectedObject(canvas.getActiveObject() ?? null))
     canvas.on("selection:cleared", () => setSelectedObject(null))
 
     // Load saved canvas state — await so objects are present before syncing layers
     if (template.canvasJson && Object.keys(template.canvasJson).length > 0) {
       canvas.loadFromJSON(template.canvasJson).then(() => {
+        isLoadingHistoryRef.current = true
         canvas.renderAll()
-        updateLayers() // sync layer panel AFTER objects are loaded
+        updateLayers()
+        isLoadingHistoryRef.current = false
+        // seed history with the loaded state
+        historyRef.current = [JSON.stringify(canvas.toJSON())]
+        histIndexRef.current = 0
+        setCanUndo(false)
+        setCanRedo(false)
+        const bg = canvas.backgroundColor
+        if (typeof bg === "string") {
+          if (!bg) { setBgTransparent(true) }
+          else { setCanvasBg(bg); setBgTransparent(false) }
+        }
       })
     } else {
       updateLayers()
+      historyRef.current = [JSON.stringify(canvas.toJSON())]
+      histIndexRef.current = 0
     }
 
     // Auto-fit zoom to container on load
@@ -267,6 +315,27 @@ export default function EditorPage() {
       height: (template?.height ?? 600) * (zoom / 100),
     })
   }, [zoom, template])
+  // ── snap to grid ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    const canvas = fabricRef.current
+    if (!canvas) return
+    const GRID = 10
+    const handler = (e: any) => {
+      const o = e.target
+      if (!o) return
+      o.set({
+        left: Math.round((o.left ?? 0) / GRID) * GRID,
+        top: Math.round((o.top ?? 0) / GRID) * GRID,
+      })
+    }
+    if (snapToGrid) {
+      canvas.on("object:moving", handler)
+    } else {
+      canvas.off("object:moving", handler)
+    }
+    return () => { canvas.off("object:moving", handler) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapToGrid])
 
   // ── keyboard shortcuts ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -283,12 +352,37 @@ export default function EditorPage() {
       if (!canvas) return
       const active = canvas.getActiveObject()
 
-      // Delete / Backspace — remove selected object
+      // Delete / Backspace — remove selected object(s)
       if ((e.key === "Delete" || e.key === "Backspace") && active) {
         e.preventDefault()
-        canvas.remove(active)
+        if ((active as any).type === "activeselection") {
+          ; (active as any).getObjects().forEach((o: FabricObject) => canvas.remove(o))
+          canvas.discardActiveObject()
+        } else {
+          canvas.remove(active)
+        }
         canvas.renderAll()
         return
+      }
+
+      // Ctrl/⌘+G — group selection
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "g") {
+        const act = canvas.getActiveObject()
+        if (act && (act as any).type === "activeselection") {
+          e.preventDefault()
+          groupSelected()
+          return
+        }
+      }
+
+      // Ctrl/⌘+Shift+G — ungroup
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "g") {
+        const act = canvas.getActiveObject()
+        if (act && (act as any).type === "group") {
+          e.preventDefault()
+          ungroupSelected()
+          return
+        }
       }
 
       // Ctrl/⌘+D — duplicate
@@ -296,6 +390,27 @@ export default function EditorPage() {
         e.preventDefault()
           ; (active as any).clone().then((clone: FabricObject) => {
             clone.set({ left: ((active as any).left ?? 0) + 20, top: ((active as any).top ?? 0) + 20 })
+            canvas.add(clone)
+            canvas.setActiveObject(clone)
+            canvas.renderAll()
+          })
+        return
+      }
+
+      // Ctrl/⌘+C — copy
+      if ((e.ctrlKey || e.metaKey) && e.key === "c" && active) {
+        e.preventDefault()
+          ; (active as any).clone().then((clone: FabricObject) => { clipboardRef.current = clone })
+        return
+      }
+
+      // Ctrl/⌘+V — paste
+      if ((e.ctrlKey || e.metaKey) && e.key === "v") {
+        e.preventDefault()
+        const cb = clipboardRef.current
+        if (!cb) return
+          ; (cb as any).clone().then((clone: FabricObject) => {
+            clone.set({ left: ((cb as any).left ?? 0) + 20, top: ((cb as any).top ?? 0) + 20 })
             canvas.add(clone)
             canvas.setActiveObject(clone)
             canvas.renderAll()
@@ -318,8 +433,9 @@ export default function EditorPage() {
         return
       }
 
-      // Escape — deselect
+      // Escape — deselect + close context menu
       if (e.key === "Escape") {
+        setCtxMenu(null)
         canvas.discardActiveObject()
         canvas.renderAll()
       }
@@ -329,6 +445,18 @@ export default function EditorPage() {
     return () => window.removeEventListener("keydown", handleKeyDown)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // ── scan canvas for {{variables}} when Variables tab is active ────────────
+  useEffect(() => {
+    if (rightPanelTab !== "variables") return
+    const canvas = fabricRef.current
+    if (!canvas) return
+    const json = JSON.stringify(canvas.toJSON())
+    const matches = [...json.matchAll(/\{\{(\w+)\}\}/g)]
+    const names = [...new Set(matches.map((m) => m[1]))] as string[]
+    setVarValues((prev) => Object.fromEntries(names.map((n) => [n, prev[n] ?? ""])))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rightPanelTab, layers])
 
   // ── save ───────────────────────────────────────────────────────────────────
   async function saveTemplate() {
@@ -403,28 +531,54 @@ export default function EditorPage() {
     canvas.renderAll()
   }
 
-  async function addImageFromUrl() {
+  async function addImageContainer() {
     const canvas = fabricRef.current
     if (!canvas) return
-    const url = prompt("Enter image URL:")
-    if (!url) return
-    try {
-      const img = await FabricImage.fromURL(url, { crossOrigin: "anonymous" })
-      img.scale(0.5)
-      img.set({ left: 80, top: 80 })
-      canvas.add(img)
-      canvas.setActiveObject(img)
+    const imgCount = canvas.getObjects().filter(
+      (o) => !!(o as any).name && /^\{\{image_\d+\}\}$/.test((o as any).name)
+    ).length
+    const varName = `{{image_${imgCount + 1}}}`
+    const img = await FabricImage.fromURL(
+      "https://placehold.co/400x300/e2e8f0/64748b?text=Image+Container"
+    )
+    img.scaleToWidth(200)
+    ;(img as any).name = varName
+    canvas.add(img)
+    canvas.setActiveObject(img)
+    canvas.renderAll()
+  }
+
+  function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    // reset so same file can be re-picked
+    e.target.value = ""
+    const canvas = fabricRef.current
+    const target = selectedObject
+    if (!canvas || !target || target.type !== "image") return
+    const img = target as FabricImage
+    // preserve current rendered dimensions
+    const renderedW = (img.width ?? 400) * (img.scaleX ?? 1)
+    const renderedH = (img.height ?? 300) * (img.scaleY ?? 1)
+    const reader = new FileReader()
+    reader.onload = async (ev) => {
+      const url = ev.target?.result as string
+      await img.setSrc(url)
+      img.scaleX = renderedW / (img.width ?? renderedW)
+      img.scaleY = renderedH / (img.height ?? renderedH)
       canvas.renderAll()
-    } catch { alert("Failed to load image") }
+    }
+    reader.readAsDataURL(file)
   }
 
   // ── property update ────────────────────────────────────────────────────────
   function updateProp(key: string, value: any) {
     const canvas = fabricRef.current
     if (!canvas || !selectedObject) return
-      ; (selectedObject as any).set(key, value)
+    // @ts-ignore
+    selectedObject.set(key, value)
     canvas.renderAll()
-    setSelectedObject({ ...selectedObject } as any) // force re-render
+    setObjRev(r => r + 1) // force re-render safely
   }
 
   // ── alignment ──────────────────────────────────────────────────────────────
@@ -445,17 +599,20 @@ export default function EditorPage() {
     }[dir]
     selectedObject.set(pos)
     canvas.renderAll()
+    setObjRev(r => r + 1)
   }
 
   function duplicateSelected() {
     const canvas = fabricRef.current
     if (!canvas || !selectedObject) return
-      ; (selectedObject as any).clone().then((clone: FabricObject) => {
-        ; (clone as any).set({ left: (obj.left ?? 0) + 20, top: (obj.top ?? 0) + 20 })
-        canvas.add(clone)
-        canvas.setActiveObject(clone)
-        canvas.renderAll()
-      })
+    // @ts-ignore
+    selectedObject.clone().then((clone: FabricObject) => {
+      // @ts-ignore
+      clone.set({ left: (obj.left ?? 0) + 20, top: (obj.top ?? 0) + 20 })
+      canvas.add(clone)
+      canvas.setActiveObject(clone)
+      canvas.renderAll()
+    })
   }
 
   function deleteSelected() {
@@ -463,6 +620,30 @@ export default function EditorPage() {
     if (!canvas || !selectedObject) return
     canvas.remove(selectedObject)
     canvas.renderAll()
+  }
+
+  function groupSelected() {
+    const canvas = fabricRef.current
+    if (!canvas) return
+    const active = canvas.getActiveObject()
+    if (!active || (active as any).type !== "activeselection") return
+    const grp = (active as any).toGroup() as FabricObject
+    canvas.setActiveObject(grp)
+    canvas.requestRenderAll()
+    setLayers([...(canvas.getObjects() ?? [])])
+    setSelectedObject(grp)
+  }
+
+  function ungroupSelected() {
+    const canvas = fabricRef.current
+    if (!canvas) return
+    const active = canvas.getActiveObject()
+    if (!active || (active as any).type !== "group") return
+    const sel = (active as any).toActiveSelection() as FabricObject
+    canvas.setActiveObject(sel)
+    canvas.requestRenderAll()
+    setLayers([...(canvas.getObjects() ?? [])])
+    setSelectedObject(sel)
   }
 
   function selectLayer(o: FabricObject) {
@@ -480,8 +661,66 @@ export default function EditorPage() {
     setLayers([...(canvas.getObjects())])
   }
 
+  function saveLayerName(o: FabricObject) {
+    const name = editLayerName.trim()
+    if (name) (o as any).name = name
+    setEditingLayerObj(null)
+    const canvas = fabricRef.current
+    if (canvas) setLayers([...(canvas.getObjects())])
+  }
+
+  function lockObject(o: FabricObject) {
+    const canvas = fabricRef.current
+    if (!canvas) return
+    o.set({
+      lockMovementX: true, lockMovementY: true,
+      lockScalingX: true, lockScalingY: true,
+      lockRotation: true, selectable: false, evented: false,
+    })
+      ; (o as any).__locked = true
+    canvas.discardActiveObject()
+    canvas.renderAll()
+    setLayers([...(canvas.getObjects())])
+    setSelectedObject(null)
+  }
+
+  function unlockObject(o: FabricObject) {
+    const canvas = fabricRef.current
+    if (!canvas) return
+    o.set({
+      lockMovementX: false, lockMovementY: false,
+      lockScalingX: false, lockScalingY: false,
+      lockRotation: false, selectable: true, evented: true,
+    })
+      ; (o as any).__locked = false
+    canvas.setActiveObject(o)
+    canvas.renderAll()
+    setLayers([...(canvas.getObjects())])
+  }
+
+  async function generatePreview() {
+    setPreviewLoading(true)
+    setPreviewError("")
+    setPreviewUrl(null)
+    try {
+      const res = await fetch(`/api/templates/${params.id}/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ modifications: varValues }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) throw new Error(data.error || "Generation failed")
+      setPreviewUrl(data.image_url)
+    } catch (e: any) {
+      setPreviewError(e.message || "Failed to generate preview")
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
   function getLayerName(o: FabricObject) {
     const a = o as any
+    if (a.name) return String(a.name)
     if (o.type === "i-text" || o.type === "text") return `Text: ${String(a.text ?? "").substring(0, 18)}`
     if (o.type === "image") return "Image"
     if (o.type === "rect") return "Rectangle"
@@ -518,17 +757,49 @@ export default function EditorPage() {
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
-          <input
-            value={templateName}
-            onChange={(e) => setTemplateName(e.target.value)}
-            className="bg-transparent border-none outline-none text-sm font-semibold text-white placeholder:text-white/40 w-48"
-          />
-          <Pencil className="h-3 w-3 text-white/40" />
+          {isEditingName ? (
+            <input
+              autoFocus
+              value={templateName}
+              onChange={(e) => setTemplateName(e.target.value)}
+              onBlur={() => setIsEditingName(false)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === "Escape") setIsEditingName(false)
+                e.stopPropagation()
+              }}
+              className="bg-white/10 border border-white/30 rounded px-2 py-0.5 outline-none text-sm font-semibold text-white w-52"
+            />
+          ) : (
+            <span
+              onClick={() => setIsEditingName(true)}
+              className="text-sm font-semibold text-white cursor-text hover:bg-white/10 rounded px-2 py-0.5 truncate max-w-[200px]"
+            >
+              {templateName || "Untitled"}
+            </span>
+          )}
+          <button
+            onClick={() => setIsEditingName(true)}
+            title="Rename template"
+            className="p-1 rounded hover:bg-white/10 transition"
+          >
+            <Pencil className="h-3 w-3 text-white/40 hover:text-white/70" />
+          </button>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-0.5 border-r border-white/20 pr-2 mr-1">
             <button
-              onClick={() => { (fabricRef.current as any)?.undo?.(); fabricRef.current?.renderAll() }}
+              onClick={async () => {
+                const canvas = fabricRef.current
+                if (!canvas || histIndexRef.current <= 0) return
+                histIndexRef.current--
+                isLoadingHistoryRef.current = true
+                await canvas.loadFromJSON(JSON.parse(historyRef.current[histIndexRef.current]))
+                canvas.renderAll()
+                setLayers([...(canvas.getObjects() ?? [])])
+                isLoadingHistoryRef.current = false
+                setCanUndo(histIndexRef.current > 0)
+                setCanRedo(true)
+              }}
               disabled={!canUndo}
               title="Undo"
               className="p-1.5 rounded hover:bg-white/10 text-white/60 hover:text-white disabled:opacity-30 transition"
@@ -536,7 +807,18 @@ export default function EditorPage() {
               <Undo2 className="h-3.5 w-3.5" />
             </button>
             <button
-              onClick={() => { (fabricRef.current as any)?.redo?.(); fabricRef.current?.renderAll() }}
+              onClick={async () => {
+                const canvas = fabricRef.current
+                if (!canvas || histIndexRef.current >= historyRef.current.length - 1) return
+                histIndexRef.current++
+                isLoadingHistoryRef.current = true
+                await canvas.loadFromJSON(JSON.parse(historyRef.current[histIndexRef.current]))
+                canvas.renderAll()
+                setLayers([...(canvas.getObjects() ?? [])])
+                isLoadingHistoryRef.current = false
+                setCanUndo(histIndexRef.current > 0)
+                setCanRedo(histIndexRef.current < historyRef.current.length - 1)
+              }}
               disabled={!canRedo}
               title="Redo"
               className="p-1.5 rounded hover:bg-white/10 text-white/60 hover:text-white disabled:opacity-30 transition"
@@ -560,20 +842,7 @@ export default function EditorPage() {
           <button className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium text-white/80 hover:bg-white/10 transition">
             <History className="h-3.5 w-3.5" /> History
           </button>
-          <button
-            onClick={() => {
-              const json = JSON.stringify(fabricRef.current?.toJSON() ?? {})
-              const matches = [...json.matchAll(/\{\{(\w+)\}\}/g)]
-              const names = [...new Set(matches.map((m) => m[1]))]
-              setTestVars(Object.fromEntries(names.map((n) => [n, ""])))
-              setTestImageUrl(null)
-              setTestError("")
-              setShowTestModal(true)
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium text-white/80 hover:bg-white/10 transition"
-          >
-            <Play className="h-3.5 w-3.5" /> Test
-          </button>
+
           <button
             onClick={() => setShowDeleteConfirm(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium text-red-300 hover:bg-red-500/20 hover:text-red-200 transition"
@@ -605,7 +874,7 @@ export default function EditorPage() {
               { icon: Type, label: "Text", action: addText },
               { icon: Square, label: "Rect", action: addRect },
               { icon: CircleIcon, label: "Circle", action: addCircle },
-              { icon: ImageIcon, label: "Image", action: addImageFromUrl },
+              { icon: ImageIcon, label: "Image", action: addImageContainer },
               { icon: LayoutGrid, label: "Grid", action: null as any },
               { icon: Star, label: "Rating", action: null as any },
             ].map(({ icon: Icon, label, action }) => (
@@ -631,7 +900,7 @@ export default function EditorPage() {
         <div className="flex-1 flex flex-col overflow-hidden">
 
           {/* ── Always-visible canvas size bar ──────────────────────────── */}
-          <div className="h-10 border-b bg-white flex items-center gap-2 px-3 shrink-0">
+          <div className="border-b bg-white flex items-center gap-2 px-3 py-1.5 shrink-0 flex-wrap min-h-[40px]">
             <select
               className="border border-gray-200 rounded px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-violet-400 bg-white"
               defaultValue="custom"
@@ -645,11 +914,79 @@ export default function EditorPage() {
             </select>
             <div className="w-px h-5 bg-gray-200" />
             <div className="flex items-center gap-1.5 text-xs text-gray-500">
-              <span className="text-gray-400">W</span>
-              <span className="border border-gray-200 rounded px-2 py-1 bg-gray-50 font-mono w-16 text-center">{template.width}</span>
-              <Lock className="h-3 w-3 text-gray-300" />
-              <span className="text-gray-400">H</span>
-              <span className="border border-gray-200 rounded px-2 py-1 bg-gray-50 font-mono w-16 text-center">{template.height}</span>
+              <span className="text-gray-400 shrink-0">W</span>
+              <input
+                type="number" min={1}
+                value={template.width}
+                onChange={(e) => {
+                  const v = Math.max(1, Math.round(Number(e.target.value)) || 1)
+                  setTemplate(prev => prev ? { ...prev, width: v } : prev)
+                  const canvas = fabricRef.current
+                  if (canvas) { canvas.setDimensions({ width: v * (zoom / 100) }); canvas.renderAll() }
+                }}
+                className="border border-gray-200 rounded px-2 py-0.5 bg-white font-mono w-16 text-center text-xs outline-none focus:ring-1 focus:ring-violet-400"
+              />
+              <span className="text-gray-400 shrink-0">H</span>
+              <input
+                type="number" min={1}
+                value={template.height}
+                onChange={(e) => {
+                  const v = Math.max(1, Math.round(Number(e.target.value)) || 1)
+                  setTemplate(prev => prev ? { ...prev, height: v } : prev)
+                  const canvas = fabricRef.current
+                  if (canvas) { canvas.setDimensions({ height: v * (zoom / 100) }); canvas.renderAll() }
+                }}
+                className="border border-gray-200 rounded px-2 py-0.5 bg-white font-mono w-16 text-center text-xs outline-none focus:ring-1 focus:ring-violet-400"
+              />
+            </div>
+            <div className="w-px h-5 bg-gray-200 shrink-0" />
+            {/* Background controls */}
+            <div className="flex items-center gap-1.5 text-xs text-gray-500">
+              <span className="text-gray-400 shrink-0">BG</span>
+              <input
+                type="color"
+                disabled={bgTransparent}
+                value={bgTransparent ? "#ffffff" : canvasBg}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setCanvasBg(v)
+                  const canvas = fabricRef.current
+                  if (canvas) { canvas.set("backgroundColor", v); canvas.renderAll() }
+                }}
+                className="h-6 w-7 cursor-pointer rounded border border-gray-200 p-0 shrink-0 disabled:opacity-40"
+              />
+              <input
+                type="text"
+                disabled={bgTransparent}
+                value={bgTransparent ? "transparent" : canvasBg}
+                onChange={(e) => setCanvasBg(e.target.value)}
+                onBlur={(e) => {
+                  if (bgTransparent) return
+                  const canvas = fabricRef.current
+                  if (canvas) { canvas.set("backgroundColor", e.target.value); canvas.renderAll() }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !bgTransparent) {
+                    const canvas = fabricRef.current
+                    if (canvas) { canvas.set("backgroundColor", canvasBg); canvas.renderAll() }
+                  }
+                }}
+                className="border border-gray-200 rounded px-1.5 py-0.5 font-mono text-xs w-[72px] outline-none focus:ring-1 focus:ring-violet-400 disabled:opacity-40 disabled:bg-gray-50"
+              />
+              <label className="flex items-center gap-1 text-xs text-gray-500 cursor-pointer select-none shrink-0">
+                <input
+                  type="checkbox"
+                  checked={bgTransparent}
+                  onChange={(e) => {
+                    const t = e.target.checked
+                    setBgTransparent(t)
+                    const canvas = fabricRef.current
+                    if (canvas) { canvas.set("backgroundColor", t ? "" : canvasBg); canvas.renderAll() }
+                  }}
+                  className="accent-violet-600"
+                />
+                Transparent
+              </label>
             </div>
             <button
               onClick={() => {
@@ -661,7 +998,7 @@ export default function EditorPage() {
                 }
               }}
               title="Fit to window"
-              className="ml-auto p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition"
+              className="ml-auto p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition shrink-0"
             >
               <Maximize2 className="h-3.5 w-3.5" />
             </button>
@@ -703,11 +1040,27 @@ export default function EditorPage() {
                 />
                 <span>%</span>
               </div>
-              {/* Actions */}
-              <div className="flex items-center gap-0.5 ml-auto">
-                <ToolbarBtn icon={Copy} title="Duplicate" onClick={duplicateSelected} />
-                <ToolbarBtn icon={Trash2} title="Delete" onClick={deleteSelected} className="hover:!text-red-500 hover:!bg-red-50" />
-              </div>
+              {isMultiSelect && (
+                <>
+                  <span className="text-xs text-gray-500 font-medium border-r border-gray-200 pr-2 mr-1">
+                    {multiSelectCount} selected
+                  </span>
+                  <ToolbarBtn icon={Layers} title="Group (Ctrl+G)" onClick={groupSelected} />
+                  <ToolbarBtn icon={Copy} title="Duplicate all" onClick={duplicateSelected} />
+                  <ToolbarBtn icon={Trash2} title="Delete all" onClick={deleteSelected} className="hover:!text-red-500 hover:!bg-red-50" />
+                </>
+              )}
+              {!isMultiSelect && (
+                <>{/* Actions */}
+                  <div className="flex items-center gap-0.5 ml-auto">
+                    {isGroup && (
+                      <ToolbarBtn icon={Ungroup} title="Ungroup (Ctrl+Shift+G)" onClick={ungroupSelected} />
+                    )}
+                    <ToolbarBtn icon={Copy} title="Duplicate" onClick={duplicateSelected} />
+                    <ToolbarBtn icon={Trash2} title="Delete" onClick={deleteSelected} className="hover:!text-red-500 hover:!bg-red-50" />
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <div className="h-10 border-b bg-white flex items-center px-3 shrink-0">
@@ -720,6 +1073,27 @@ export default function EditorPage() {
             ref={containerRef}
             className="flex-1 overflow-auto relative"
             style={{ backgroundColor: "#eef0f7" }}
+            onDoubleClick={(e) => {
+              if ((e.target as HTMLElement).tagName === "CANVAS") return
+              if (containerRef.current && template) {
+                const { offsetWidth: cw, offsetHeight: ch } = containerRef.current
+                const pad = 64
+                const fit = Math.floor(
+                  Math.min((cw - pad) / template.width, (ch - pad) / template.height) * 100
+                )
+                setZoom(Math.max(10, Math.min(fit, 100)))
+              }
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              const canvas = fabricRef.current
+              if (!canvas) return
+              const active = canvas.getActiveObject()
+              const hasClipboard = !!clipboardRef.current
+              // Open menu if there is a selection OR something in the clipboard
+              if (!active && !hasClipboard) return
+              setCtxMenu({ x: e.clientX, y: e.clientY, hasSelection: !!active, hasClipboard })
+            }}
           >
             {/* Outer padding wrapper — flex centers canvas, min sizes allow scroll when canvas > viewport */}
             <div className="flex items-center justify-center p-8" style={{ minHeight: "100%", minWidth: "max-content" }}>
@@ -758,387 +1132,543 @@ export default function EditorPage() {
               >
                 Fit
               </button>
+              <div className="w-px h-4 bg-gray-200 mx-0.5" />
+              <button
+                onClick={() => setSnapToGrid((s) => !s)}
+                className={`p-1 rounded transition ${snapToGrid ? "bg-violet-100 text-violet-600" : "text-gray-400 hover:bg-gray-100"}`}
+                title="Snap to grid (10px)"
+              >
+                <Grid3x3 className="h-3 w-3" />
+              </button>
             </div>
           </div>
         </div>
 
         {/* ── RIGHT PANEL ───────────────────────────────────────────────── */}
-        <aside className="w-72 border-l bg-white overflow-y-auto flex flex-col shrink-0">
+        <aside className="w-72 border-l bg-white flex flex-col shrink-0">
 
-          {/* LAYERS */}
-          <PanelSection title="Layers">
-            <div className="py-1">
-              {layers.length === 0 ? (
-                <p className="text-xs text-gray-400 px-3 py-3">
-                  No layers yet. Add objects using the toolbar.
-                </p>
-              ) : (
-                [...layers].reverse().map((o, i) => (
-                  <div
-                    key={i}
-                    onClick={() => selectLayer(o)}
-                    className={cn(
-                      "flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-violet-50 text-sm transition",
-                      selectedObject === o && "bg-violet-50"
-                    )}
-                  >
-                    <LayerIcon type={o.type} />
-                    <span className={cn("flex-1 truncate text-xs", selectedObject === o ? "text-violet-700 font-medium" : "text-gray-700")}>
-                      {getLayerName(o)}
-                    </span>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); toggleVisibility(o) }}
-                      className="p-1 hover:bg-gray-200 rounded opacity-0 group-hover:opacity-100 text-gray-400"
-                    >
-                      {o.visible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
-                    </button>
-                    <RefreshCw className="h-3 w-3 text-violet-300 shrink-0" aria-label="Dynamic layer" />
-                  </div>
-                ))
+          {/* ── Tab toggle ─────────────────────────────────────────────── */}
+          <div className="flex border-b shrink-0">
+            <button
+              onClick={() => setRightPanelTab("properties")}
+              className={cn(
+                "flex-1 py-2 text-xs font-medium transition",
+                rightPanelTab === "properties"
+                  ? "text-violet-600 border-b-2 border-violet-500 bg-violet-50/50"
+                  : "text-gray-500 hover:text-gray-700"
               )}
-            </div>
-          </PanelSection>
+            >Properties</button>
+            <button
+              onClick={() => setRightPanelTab("variables")}
+              className={cn(
+                "flex-1 py-2 text-xs font-medium transition",
+                rightPanelTab === "variables"
+                  ? "text-violet-600 border-b-2 border-violet-500 bg-violet-50/50"
+                  : "text-gray-500 hover:text-gray-700"
+              )}
+            >Variables</button>
+          </div>
 
-          {/* ARRANGE */}
-          {selectedObject && (
-            <PanelSection title="Arrange">
-              <div className="px-3 pt-2 pb-3 grid grid-cols-2 gap-2">
-                <NumInput label="X" value={obj.left ?? 0} onChange={(v) => updateProp("left", v)} />
-                <NumInput label="Y" value={obj.top ?? 0} onChange={(v) => updateProp("top", v)} />
-                <NumInput
-                  label="W"
-                  value={(obj.width ?? 0) * (obj.scaleX ?? 1)}
-                  onChange={(v) => updateProp("scaleX", v / (obj.width || 1))}
-                />
-                <NumInput
-                  label="H"
-                  value={(obj.height ?? 0) * (obj.scaleY ?? 1)}
-                  onChange={(v) => updateProp("scaleY", v / (obj.height || 1))}
-                />
-              </div>
-              <div className="px-3 pb-3">
-                <label className="text-[10px] font-medium text-gray-400 mb-1.5 block uppercase tracking-wide">
-                  Rotation
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="range" min={0} max={360}
-                    value={obj.angle ?? 0}
-                    onChange={(e) => updateProp("angle", Number(e.target.value))}
-                    className="flex-1 accent-violet-600"
-                  />
-                  <span className="text-xs tabular-nums text-gray-500 w-10 text-right">
-                    {Math.round(obj.angle ?? 0)}°
-                  </span>
+          {rightPanelTab === "properties" ? (
+            <div className="flex-1 overflow-y-auto flex flex-col">
+
+              {/* LAYERS */}
+              <PanelSection title="Layers">
+                <div className="py-1">
+                  {layers.length === 0 ? (
+                    <p className="text-xs text-gray-400 px-3 py-3">
+                      No layers yet. Add objects using the toolbar.
+                    </p>
+                  ) : (
+                    [...layers].reverse().map((o, i) => (
+                      <div key={i}>
+                        {dragOverIndex === i && (
+                          <div className="h-0.5 bg-blue-500 mx-3 rounded" />
+                        )}
+                        <div
+                          draggable
+                          onDragStart={() => { dragSrcIndexRef.current = i }}
+                          onDragOver={(e) => { e.preventDefault(); setDragOverIndex(i) }}
+                          onDragLeave={() => setDragOverIndex(null)}
+                          onDrop={(e) => {
+                            e.preventDefault()
+                            setDragOverIndex(null)
+                            const src = dragSrcIndexRef.current
+                            if (src === null || src === i) return
+                            dragSrcIndexRef.current = null
+                            const canvas = fabricRef.current
+                            if (!canvas) return
+                            // layers is bottom-to-top; reverse index → canvas index
+                            const total = layers.length
+                            const srcCanvas = total - 1 - src
+                            const dstCanvas = total - 1 - i
+                            const obj = canvas.item(srcCanvas)
+                            if (!obj) return
+                            canvas.remove(obj)
+                            canvas.insertAt(dstCanvas, obj)
+                            canvas.renderAll()
+                            setLayers([...(canvas.getObjects() ?? [])])
+                          }}
+                          onClick={() => selectLayer(o)}
+                          className={cn(
+                            "flex items-center gap-2 px-3 py-2 cursor-grab hover:bg-violet-50 text-sm transition",
+                            selectedObject === o && "bg-violet-50"
+                          )}
+                        >
+                          <LayerIcon type={o.type} />
+                          {editingLayerObj === o ? (
+                            <input
+                              type="text"
+                              autoFocus
+                              value={editLayerName}
+                              onChange={(e) => setEditLayerName(e.target.value)}
+                              onBlur={() => saveLayerName(o)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") saveLayerName(o)
+                                if (e.key === "Escape") setEditingLayerObj(null)
+                                e.stopPropagation()
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="flex-1 text-xs border border-violet-400 rounded px-1 py-0.5 outline-none bg-white min-w-0"
+                            />
+                          ) : (
+                            <span
+                              onDoubleClick={(e) => { e.stopPropagation(); setEditingLayerObj(o); setEditLayerName(getLayerName(o)) }}
+                              className={cn("flex-1 truncate text-xs", selectedObject === o ? "text-violet-700 font-medium" : "text-gray-700")}
+                            >
+                              {getLayerName(o)}
+                            </span>
+                          )}
+                          {editingLayerObj !== o && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setEditingLayerObj(o); setEditLayerName(getLayerName(o)) }}
+                              className="p-1 hover:bg-gray-200 rounded opacity-0 group-hover:opacity-100 text-gray-400 shrink-0"
+                              title="Rename layer"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                          )}
+                          {(o as any).__locked && (
+                            <Lock className="h-3 w-3 text-amber-400 shrink-0" aria-label="Locked" />
+                          )}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleVisibility(o) }}
+                            className="p-1 hover:bg-gray-200 rounded text-gray-400 shrink-0"
+                            title={o.visible ? "Hide layer" : "Show layer"}
+                          >
+                            {o.visible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+                          </button>
+                          <RefreshCw className="h-3 w-3 text-violet-300 shrink-0" aria-label="Dynamic layer" />
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
-              </div>
-            </PanelSection>
-          )}
+              </PanelSection>
 
-          {/* TEXT properties */}
-          {isText && (
-            <PanelSection title="Text">
-              <div className="px-3 py-3 space-y-3">
-                <div>
-                  <label className="text-[10px] font-medium text-gray-400 mb-1 block uppercase tracking-wide">Content</label>
-                  <textarea
-                    rows={3}
-                    value={obj?.text ?? ""}
-                    onChange={(e) => updateProp("text", e.target.value)}
-                    className="w-full border border-gray-200 rounded-md px-2 py-1.5 text-sm resize-none focus:ring-1 focus:ring-violet-400 focus:border-violet-400 outline-none"
-                  />
-                  <p className="text-[10px] text-gray-400 mt-1">Use {"{{variable}}"} for dynamic content</p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[10px] font-medium text-gray-400 mb-1 block uppercase tracking-wide">Size</label>
-                    <input
-                      type="number" min={6} max={400}
-                      value={obj?.fontSize ?? 32}
-                      onChange={(e) => updateProp("fontSize", Number(e.target.value))}
-                      className="w-full border border-gray-200 rounded-md px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-violet-400"
+              {/* ARRANGE */}
+              {selectedObject && isMultiSelect && (
+                <PanelSection title="Selection">
+                  <div className="px-3 py-3 space-y-2">
+                    <p className="text-xs text-gray-500 font-medium">{multiSelectCount} objects selected</p>
+                    <button
+                      onClick={() => { fabricRef.current?.discardActiveObject(); fabricRef.current?.renderAll() }}
+                      className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 hover:bg-gray-50 transition"
+                    >
+                      Deselect All
+                    </button>
+                    <button
+                      onClick={deleteSelected}
+                      className="w-full text-xs border border-red-200 text-red-600 rounded px-2 py-1.5 hover:bg-red-50 transition"
+                    >
+                      Delete All
+                    </button>
+                  </div>
+                </PanelSection>
+              )}
+              {selectedObject && !isMultiSelect && (
+                <PanelSection title="Arrange">
+                  <div className="px-3 pt-2 pb-3 grid grid-cols-2 gap-2">
+                    <NumInput label="X" value={obj.left ?? 0} onChange={(v) => updateProp("left", v)} />
+                    <NumInput label="Y" value={obj.top ?? 0} onChange={(v) => updateProp("top", v)} />
+                    <NumInput
+                      label="W"
+                      value={(obj.width ?? 0) * (obj.scaleX ?? 1)}
+                      onChange={(v) => updateProp("scaleX", v / (obj.width || 1))}
+                    />
+                    <NumInput
+                      label="H"
+                      value={(obj.height ?? 0) * (obj.scaleY ?? 1)}
+                      onChange={(v) => updateProp("scaleY", v / (obj.height || 1))}
                     />
                   </div>
-                  <div>
-                    <label className="text-[10px] font-medium text-gray-400 mb-1 block uppercase tracking-wide">Font</label>
-                    <select
-                      value={obj?.fontFamily ?? "Inter"}
-                      onChange={(e) => updateProp("fontFamily", e.target.value)}
-                      className="w-full border border-gray-200 rounded-md px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-violet-400"
-                    >
-                      {["Inter", "Arial", "Helvetica", "Roboto", "Georgia", "Montserrat", "Oswald", "Playfair Display", "Courier New"].map((f) => (
-                        <option key={f} value={f}>{f}</option>
-                      ))}
-                    </select>
+                  <div className="px-3 pb-3">
+                    <label className="text-[10px] font-medium text-gray-400 mb-1.5 block uppercase tracking-wide">
+                      Rotation
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range" min={0} max={360}
+                        value={obj.angle ?? 0}
+                        onChange={(e) => updateProp("angle", Number(e.target.value))}
+                        className="flex-1 accent-violet-600"
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        max={360}
+                        value={Math.round(obj.angle ?? 0)}
+                        onChange={(e) => updateProp("angle", Number(e.target.value))}
+                        className="w-14 text-xs border border-gray-200 rounded px-1.5 py-1 text-right outline-none focus:ring-1 focus:ring-violet-400"
+                      />
+                    </div>
                   </div>
-                </div>
-
-                {/* Style toggles */}
-                <div className="flex gap-1 items-center">
-                  {[
-                    { label: "B", prop: "fontWeight", on: "bold", off: "normal", style: "font-bold" },
-                    { label: "I", prop: "fontStyle", on: "italic", off: "normal", style: "italic" },
-                  ].map(({ label, prop, on, off, style }) => (
-                    <button
-                      key={prop}
-                      onClick={() => updateProp(prop, (obj as any)[prop] === on ? off : on)}
-                      className={cn(
-                        "w-7 h-7 rounded border text-xs transition",
-                        style,
-                        (obj as any)?.[prop] === on
-                          ? "bg-violet-600 text-white border-violet-600"
-                          : "border-gray-200 text-gray-600 hover:bg-gray-50"
-                      )}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                  <button
-                    onClick={() => updateProp("underline", !obj?.underline)}
-                    className={cn(
-                      "w-7 h-7 rounded border text-xs transition underline",
-                      obj?.underline
-                        ? "bg-violet-600 text-white border-violet-600"
-                        : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                  {/* Lock / Unlock */}
+                  <div className="px-3 pb-3">
+                    {(obj as any).__locked ? (
+                      <button
+                        onClick={() => unlockObject(selectedObject!)}
+                        className="w-full flex items-center justify-center gap-1.5 text-xs rounded-lg border border-amber-300 bg-amber-50 text-amber-700 py-1.5 hover:bg-amber-100 transition"
+                      >
+                        <Lock className="h-3 w-3" />
+                        Locked — click to unlock
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => lockObject(selectedObject!)}
+                        className="w-full flex items-center justify-center gap-1.5 text-xs rounded-lg border border-gray-200 text-gray-500 py-1.5 hover:bg-gray-50 transition"
+                      >
+                        <Lock className="h-3 w-3" />
+                        Lock object
+                      </button>
                     )}
-                  >U</button>
+                  </div>
+                </PanelSection>
+              )}
 
-                  <div className="flex gap-1 ml-auto">
-                    {["left", "center", "right"].map((a) => {
-                      const icons: Record<string, any> = { left: AlignLeft, center: AlignCenter, right: AlignRight }
-                      const Ic = icons[a]
-                      return (
+              {/* TEXT properties */}
+              {isText && (
+                <PanelSection title="Text">
+                  <div className="px-3 py-3 space-y-3">
+                    <div>
+                      <label className="text-[10px] font-medium text-gray-400 mb-1 block uppercase tracking-wide">Content</label>
+                      <textarea
+                        rows={3}
+                        value={obj?.text ?? ""}
+                        onChange={(e) => updateProp("text", e.target.value)}
+                        className="w-full border border-gray-200 rounded-md px-2 py-1.5 text-sm resize-none focus:ring-1 focus:ring-violet-400 focus:border-violet-400 outline-none"
+                      />
+                      <p className="text-[10px] text-gray-400 mt-1">Use {"{{variable}}"} for dynamic content</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] font-medium text-gray-400 mb-1 block uppercase tracking-wide">Size</label>
+                        <input
+                          type="number" min={6} max={400}
+                          value={obj?.fontSize ?? 32}
+                          onChange={(e) => updateProp("fontSize", Number(e.target.value))}
+                          className="w-full border border-gray-200 rounded-md px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-violet-400"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-medium text-gray-400 mb-1 block uppercase tracking-wide">Font</label>
+                        <select
+                          value={obj?.fontFamily ?? "Inter"}
+                          onChange={(e) => updateProp("fontFamily", e.target.value)}
+                          className="w-full border border-gray-200 rounded-md px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-violet-400"
+                        >
+                          {["Inter", "Arial", "Helvetica", "Roboto", "Georgia", "Montserrat", "Oswald", "Playfair Display", "Courier New"].map((f) => (
+                            <option key={f} value={f}>{f}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Style toggles */}
+                    <div className="flex gap-1 items-center">
+                      {[
+                        { label: "B", prop: "fontWeight", on: "bold", off: "normal", style: "font-bold" },
+                        { label: "I", prop: "fontStyle", on: "italic", off: "normal", style: "italic" },
+                      ].map(({ label, prop, on, off, style }) => (
                         <button
-                          key={a}
-                          onClick={() => updateProp("textAlign", a)}
+                          key={prop}
+                          onClick={() => updateProp(prop, (obj as any)[prop] === on ? off : on)}
                           className={cn(
-                            "w-7 h-7 rounded border text-xs flex items-center justify-center transition",
-                            obj?.textAlign === a
+                            "w-7 h-7 rounded border text-xs transition",
+                            style,
+                            (obj as any)?.[prop] === on
                               ? "bg-violet-600 text-white border-violet-600"
                               : "border-gray-200 text-gray-600 hover:bg-gray-50"
                           )}
                         >
-                          <Ic className="h-3 w-3" />
+                          {label}
                         </button>
-                      )
-                    })}
-                  </div>
-                </div>
+                      ))}
+                      <button
+                        onClick={() => updateProp("underline", !obj?.underline)}
+                        className={cn(
+                          "w-7 h-7 rounded border text-xs transition underline",
+                          obj?.underline
+                            ? "bg-violet-600 text-white border-violet-600"
+                            : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                        )}
+                      >U</button>
 
-                {/* Color */}
-                <div>
-                  <label className="text-[10px] font-medium text-gray-400 mb-1 block uppercase tracking-wide">Color</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="color" value={fillColor}
-                      onChange={(e) => updateProp("fill", e.target.value)}
-                      className="h-9 w-10 cursor-pointer rounded border border-gray-200 p-0.5 shrink-0"
-                    />
-                    <input
-                      type="text" value={fillColor}
-                      onChange={(e) => updateProp("fill", e.target.value)}
-                      className="flex-1 border border-gray-200 rounded-md px-2 py-1.5 text-sm font-mono outline-none focus:ring-1 focus:ring-violet-400"
-                    />
-                  </div>
-                </div>
-              </div>
-            </PanelSection>
-          )}
+                      <div className="flex gap-1 ml-auto">
+                        {["left", "center", "right"].map((a) => {
+                          const icons: Record<string, any> = { left: AlignLeft, center: AlignCenter, right: AlignRight }
+                          const Ic = icons[a]
+                          return (
+                            <button
+                              key={a}
+                              onClick={() => updateProp("textAlign", a)}
+                              className={cn(
+                                "w-7 h-7 rounded border text-xs flex items-center justify-center transition",
+                                obj?.textAlign === a
+                                  ? "bg-violet-600 text-white border-violet-600"
+                                  : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                              )}
+                            >
+                              <Ic className="h-3 w-3" />
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
 
-          {/* SHAPE properties */}
-          {isShape && (
-            <PanelSection title="Shape">
-              <div className="px-3 py-3 space-y-3">
-                <div>
-                  <label className="text-[10px] font-medium text-gray-400 mb-1 block uppercase tracking-wide">Fill Color</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="color" value={fillColor}
-                      onChange={(e) => updateProp("fill", e.target.value)}
-                      className="h-9 w-10 cursor-pointer rounded border border-gray-200 p-0.5 shrink-0"
-                    />
-                    <input
-                      type="text" value={fillColor}
-                      onChange={(e) => updateProp("fill", e.target.value)}
-                      className="flex-1 border border-gray-200 rounded-md px-2 py-1.5 text-sm font-mono outline-none focus:ring-1 focus:ring-violet-400"
-                    />
-                  </div>
-                </div>
-                {selectedObject?.type === "rect" && (
-                  <div>
-                    <label className="text-[10px] font-medium text-gray-400 mb-1.5 block uppercase tracking-wide">
-                      Border Radius — {obj.rx ?? 0}px
-                    </label>
-                    <input
-                      type="range" min={0} max={100}
-                      value={obj.rx ?? 0}
-                      onChange={(e) => {
-                        updateProp("rx", Number(e.target.value))
-                        updateProp("ry", Number(e.target.value))
-                      }}
-                      className="w-full accent-violet-600"
-                    />
-                  </div>
-                )}
-              </div>
-            </PanelSection>
-          )}
-
-          {/* IMAGE properties */}
-          {isImage && (
-            <PanelSection title="Image">
-              <div className="px-3 py-3">
-                <button
-                  onClick={addImageFromUrl}
-                  className="w-full border-2 border-dashed border-gray-200 rounded-lg py-5 text-xs text-gray-400 hover:border-violet-400 hover:text-violet-500 transition flex flex-col items-center gap-1"
-                >
-                  <ImageIcon className="h-5 w-5" />
-                  Replace image URL
-                </button>
-              </div>
-            </PanelSection>
-          )}
-
-          {/* Canvas background — shown when nothing is selected */}
-          {!selectedObject && (
-            <>
-              <div className="px-3 py-2">
-                <p className="text-[10px] text-gray-400 text-center leading-relaxed">
-                  Click an object on the canvas to edit its properties
-                </p>
-              </div>
-              <PanelSection title="Canvas">
-                <div className="px-3 py-3 space-y-3">
-                  <div>
-                    <label className="text-[10px] font-medium text-gray-400 mb-1 block uppercase tracking-wide">Background</label>
-                    <div className="flex gap-2">
-                      <input
-                        type="color"
-                        value={typeof (fabricRef.current as any)?.backgroundColor === 'string' && (fabricRef.current as any)?.backgroundColor ? (fabricRef.current as any).backgroundColor : '#ffffff'}
-                        onChange={(e) => {
-                          const canvas = fabricRef.current
-                          if (!canvas) return
-                          canvas.set('backgroundColor', e.target.value)
-                          canvas.renderAll()
-                        }}
-                        className="h-9 w-10 cursor-pointer rounded border border-gray-200 p-0.5 shrink-0"
-                      />
-                      <input
-                        type="text"
-                        placeholder="#ffffff"
-                        defaultValue="#ffffff"
-                        onBlur={(e) => {
-                          const canvas = fabricRef.current
-                          if (!canvas) return
-                          canvas.set('backgroundColor', e.target.value)
-                          canvas.renderAll()
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            const canvas = fabricRef.current
-                            if (!canvas) return
-                            canvas.set('backgroundColor', (e.target as HTMLInputElement).value)
-                            canvas.renderAll()
-                          }
-                        }}
-                        className="flex-1 border border-gray-200 rounded-md px-2 py-1.5 text-sm font-mono outline-none focus:ring-1 focus:ring-violet-400"
-                      />
+                    {/* Color */}
+                    <div>
+                      <label className="text-[10px] font-medium text-gray-400 mb-1 block uppercase tracking-wide">Color</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="color" value={fillColor}
+                          onChange={(e) => updateProp("fill", e.target.value)}
+                          className="h-9 w-10 cursor-pointer rounded border border-gray-200 p-0.5 shrink-0"
+                        />
+                        <input
+                          type="text" value={fillColor}
+                          onChange={(e) => updateProp("fill", e.target.value)}
+                          className="flex-1 border border-gray-200 rounded-md px-2 py-1.5 text-sm font-mono outline-none focus:ring-1 focus:ring-violet-400"
+                        />
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="bg-transparent"
-                      onChange={(e) => {
-                        const canvas = fabricRef.current
-                        if (!canvas) return
-                        canvas.set('backgroundColor', e.target.checked ? '' : '#ffffff')
-                        canvas.renderAll()
-                      }}
-                      className="accent-violet-600"
-                    />
-                    <label htmlFor="bg-transparent" className="text-xs text-gray-600 select-none cursor-pointer">
-                      Transparent background
-                    </label>
+                    <div className="flex items-center justify-between pt-1">
+                      <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Shrink to fit</label>
+                      <button
+                        onClick={() => updateProp("__shrinkToFit", !shrinkToFit)}
+                        className={`relative w-9 h-5 rounded-full transition-colors ${shrinkToFit ? "bg-violet-600" : "bg-gray-200"}`}
+                      >
+                        <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${shrinkToFit ? "translate-x-4" : ""}`} />
+                      </button>
+                    </div>
+                </PanelSection>
+              )}
+
+              {/* SHAPE properties */}
+              {isShape && (
+                <PanelSection title="Shape">
+                  <div className="px-3 py-3 space-y-3">
+                    <div>
+                      <label className="text-[10px] font-medium text-gray-400 mb-1 block uppercase tracking-wide">Fill Color</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="color" value={fillColor}
+                          onChange={(e) => updateProp("fill", e.target.value)}
+                          className="h-9 w-10 cursor-pointer rounded border border-gray-200 p-0.5 shrink-0"
+                        />
+                        <input
+                          type="text" value={fillColor}
+                          onChange={(e) => updateProp("fill", e.target.value)}
+                          className="flex-1 border border-gray-200 rounded-md px-2 py-1.5 text-sm font-mono outline-none focus:ring-1 focus:ring-violet-400"
+                        />
+                      </div>
+                    </div>
+                    {selectedObject?.type === "rect" && (
+                      <div>
+                        <label className="text-[10px] font-medium text-gray-400 mb-1.5 block uppercase tracking-wide">
+                          Border Radius — {obj.rx ?? 0}px
+                        </label>
+                        <input
+                          type="range" min={0} max={100}
+                          value={obj.rx ?? 0}
+                          onChange={(e) => {
+                            updateProp("rx", Number(e.target.value))
+                            updateProp("ry", Number(e.target.value))
+                          }}
+                          className="w-full accent-violet-600"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </PanelSection>
+              )}
+
+              {/* IMAGE properties */}
+              {isImage && (
+                <PanelSection title="Image">
+                  <div className="px-3 py-3">
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full border-2 border-dashed border-gray-200 rounded-lg py-5 text-xs text-gray-400 hover:border-violet-400 hover:text-violet-500 transition flex flex-col items-center gap-1"
+                    >
+                      <ImageIcon className="h-5 w-5" />
+                      Replace image (from file)
+                    </button>
+
+                    <div className="mt-3">
+                      <label className="text-[10px] font-medium text-gray-400 mb-1 block uppercase tracking-wide">Image Scaling</label>
+                      <select
+                        value={imgScaling}
+                        onChange={(e) => updateProp("__imgScaling", e.target.value)}
+                        className="w-full border border-gray-200 rounded-md px-2 py-1.5 text-sm bg-white outline-none focus:ring-1 focus:ring-violet-400"
+                      >
+                        <option value="fill">Fill (stretch)</option>
+                        <option value="cover">Cover (crop to fit)</option>
+                        <option value="contain">Contain (letterbox)</option>
+                      </select>
+                    </div>
+                  </div>
+                </PanelSection>
+              )}
+
+              {/* Canvas background — shown when nothing is selected */}
+              {!selectedObject && (
+                <div className="px-3 py-2">
+                  <p className="text-[10px] text-gray-400 text-center leading-relaxed">
+                    Click an object on the canvas to edit its properties
+                  </p>
+                </div>
+              )}
+
+              {/* IMAGE SETTINGS — always visible */}
+              <PanelSection title="Image Settings">
+                <div className="px-3 py-3 space-y-3">
+                  <div>
+                    <label className="text-[10px] font-medium text-gray-400 mb-1 block uppercase tracking-wide">Format</label>
+                    <select
+                      value={imgFormat}
+                      onChange={(e) => setImgFormat(e.target.value as any)}
+                      className="w-full border border-gray-200 rounded-md px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-violet-400"
+                    >
+                      <option value="auto">Automatic</option>
+                      <option value="png">PNG</option>
+                      <option value="jpeg">JPEG</option>
+                    </select>
+                  </div>
+                  {imgFormat !== "png" && (
+                    <div>
+                      <label className="text-[10px] font-medium text-gray-400 mb-1.5 block uppercase tracking-wide">
+                        Quality — {imgQuality}%
+                      </label>
+                      <input
+                        type="range" min={10} max={100} step={5}
+                        value={imgQuality}
+                        onChange={(e) => setImgQuality(Number(e.target.value))}
+                        className="w-full accent-violet-600"
+                      />
+                    </div>
+                  )}
+                  <div>
+                    <label className="text-[10px] font-medium text-gray-400 mb-1 block uppercase tracking-wide">DPI</label>
+                    <select
+                      value={imgDpi}
+                      onChange={(e) => setImgDpi(e.target.value as any)}
+                      className="w-full border border-gray-200 rounded-md px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-violet-400"
+                    >
+                      {(["72", "96", "150", "300"] as const).map((d) => (
+                        <option key={d} value={d}>{d} DPI{d === "96" ? " (screen)" : d === "300" ? " (print)" : ""}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               </PanelSection>
-            </>
-          )}
 
-          {/* IMAGE SETTINGS — always visible */}
-          <PanelSection title="Image Settings">
-            <div className="px-3 py-3 space-y-3">
-              <div>
-                <label className="text-[10px] font-medium text-gray-400 mb-1 block uppercase tracking-wide">Format</label>
-                <select
-                  value={imgFormat}
-                  onChange={(e) => setImgFormat(e.target.value as any)}
-                  className="w-full border border-gray-200 rounded-md px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-violet-400"
-                >
-                  <option value="auto">Automatic</option>
-                  <option value="png">PNG</option>
-                  <option value="jpeg">JPEG</option>
-                </select>
-              </div>
-              {imgFormat !== "png" && (
-                <div>
-                  <label className="text-[10px] font-medium text-gray-400 mb-1.5 block uppercase tracking-wide">
-                    Quality — {imgQuality}%
+              {/* PDF SETTINGS — always visible */}
+              <PanelSection title="PDF Settings" defaultOpen={false}>
+                <div className="px-3 py-3 space-y-3">
+                  <div>
+                    <label className="text-[10px] font-medium text-gray-400 mb-1.5 block uppercase tracking-wide">
+                      Quality — {pdfQuality}%
+                    </label>
+                    <input
+                      type="range" min={10} max={100} step={5}
+                      value={pdfQuality}
+                      onChange={(e) => setPdfQuality(Number(e.target.value))}
+                      className="w-full accent-violet-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-medium text-gray-400 mb-1 block uppercase tracking-wide">DPI</label>
+                    <select
+                      value={pdfDpi}
+                      onChange={(e) => setPdfDpi(e.target.value as any)}
+                      className="w-full border border-gray-200 rounded-md px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-violet-400"
+                    >
+                      {(["72", "96", "150", "300"] as const).map((d) => (
+                        <option key={d} value={d}>{d} DPI{d === "96" ? " (screen)" : d === "150" ? " (web)" : d === "300" ? " (print)" : ""}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </PanelSection>
+
+            </div>
+          ) : (
+            /* ── VARIABLES TAB ────────────────────────────────────────── */
+            <div className="flex-1 overflow-y-auto flex flex-col p-4 gap-4">
+              <p className="text-xs text-gray-400 leading-relaxed">
+                {Object.keys(varValues).length === 0
+                  ? 'No \u007b\u007bvariables\u007d\u007d found. Add text layers using \u007b\u007bname\u007d\u007d syntax.'
+                  : `${Object.keys(varValues).length} variable${Object.keys(varValues).length !== 1 ? "s" : ""} detected`}
+              </p>
+              {Object.keys(varValues).map((v) => (
+                <div key={v}>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    <span className="font-mono text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded text-xs">{`{{${v}}}`}</span>
                   </label>
                   <input
-                    type="range" min={10} max={100} step={5}
-                    value={imgQuality}
-                    onChange={(e) => setImgQuality(Number(e.target.value))}
-                    className="w-full accent-violet-600"
+                    type="text"
+                    placeholder={`Value for ${v}…`}
+                    value={varValues[v]}
+                    onChange={(e) => setVarValues((prev) => ({ ...prev, [v]: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400"
                   />
                 </div>
+              ))}
+              {previewError && (
+                <p className="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{previewError}</p>
               )}
-              <div>
-                <label className="text-[10px] font-medium text-gray-400 mb-1 block uppercase tracking-wide">DPI</label>
-                <select
-                  value={imgDpi}
-                  onChange={(e) => setImgDpi(e.target.value as any)}
-                  className="w-full border border-gray-200 rounded-md px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-violet-400"
+              <div className="mt-auto pt-2">
+                <button
+                  disabled={previewLoading}
+                  onClick={generatePreview}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-60 text-white font-semibold py-2.5 text-sm transition"
                 >
-                  {(["72", "96", "150", "300"] as const).map((d) => (
-                    <option key={d} value={d}>{d} DPI{d === "96" ? " (screen)" : d === "300" ? " (print)" : ""}</option>
-                  ))}
-                </select>
+                  {previewLoading ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" /> Generating…</>
+                  ) : (
+                    <><Play className="h-4 w-4" /> Generate Preview</>
+                  )}
+                </button>
               </div>
+              {previewUrl && (
+                <div className="flex flex-col gap-2">
+                  <div className="rounded-xl overflow-hidden border border-gray-200 bg-gray-50">
+                    <img src={previewUrl} alt="Generated preview" className="w-full h-auto" />
+                  </div>
+                  <a
+                    href={previewUrl}
+                    download={`${templateName || "preview"}.png`}
+                    className="text-xs text-center text-violet-600 hover:text-violet-700 font-medium"
+                  >
+                    ↓ Download image
+                  </a>
+                </div>
+              )}
             </div>
-          </PanelSection>
-
-          {/* PDF SETTINGS — always visible */}
-          <PanelSection title="PDF Settings" defaultOpen={false}>
-            <div className="px-3 py-3 space-y-3">
-              <div>
-                <label className="text-[10px] font-medium text-gray-400 mb-1.5 block uppercase tracking-wide">
-                  Quality — {pdfQuality}%
-                </label>
-                <input
-                  type="range" min={10} max={100} step={5}
-                  value={pdfQuality}
-                  onChange={(e) => setPdfQuality(Number(e.target.value))}
-                  className="w-full accent-violet-600"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-medium text-gray-400 mb-1 block uppercase tracking-wide">DPI</label>
-                <select
-                  value={pdfDpi}
-                  onChange={(e) => setPdfDpi(e.target.value as any)}
-                  className="w-full border border-gray-200 rounded-md px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-violet-400"
-                >
-                  {(["72", "96", "150", "300"] as const).map((d) => (
-                    <option key={d} value={d}>{d} DPI{d === "96" ? " (screen)" : d === "150" ? " (web)" : d === "300" ? " (print)" : ""}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </PanelSection>
-
+          )}
         </aside>
       </div>
 
@@ -1178,128 +1708,126 @@ export default function EditorPage() {
         </div>
       )}
 
-      {/* ── TEST MODAL ──────────────────────────────────────────────────── */}
-      {showTestModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-          onClick={(e) => e.target === e.currentTarget && setShowTestModal(false)}
-        >
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
 
-            {/* header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
-              <div>
-                <h2 className="text-lg font-semibold">Test Template</h2>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  {Object.keys(testVars).length === 0
-                    ? "No {{variables}} detected in canvas"
-                    : `${Object.keys(testVars).length} variable${Object.keys(testVars).length !== 1 ? "s" : ""} detected`}
-                </p>
-              </div>
+      {/* ── right-click context menu ───────────────────────────────────────────────────── */}
+      {ctxMenu && (
+        <>
+          {/* invisible backdrop to catch outside clicks */}
+          <div className="fixed inset-0 z-40" onClick={() => setCtxMenu(null)} />
+          <div
+            className="fixed z-50 min-w-[160px] bg-white border border-gray-200 rounded-lg shadow-xl py-1 text-sm"
+            style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          >
+            {/* ── Copy (only when an object is selected) ── */}
+            {ctxMenu.hasSelection && (
               <button
-                onClick={() => setShowTestModal(false)}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition"
+                onClick={() => {
+                  const active = fabricRef.current?.getActiveObject()
+                  if (active) {
+                    ;(active as any).clone().then((clone: FabricObject) => {
+                      clipboardRef.current = clone
+                    })
+                  }
+                  setCtxMenu(null)
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-gray-50 transition text-left text-gray-700"
               >
-                <X className="h-4 w-4" />
+                <span className="text-xs w-4 text-center">⧉</span>
+                Copy
               </button>
-            </div>
+            )}
 
-            {/* body */}
-            <div className="flex-1 overflow-y-auto p-6">
-              <div className={Object.keys(testVars).length > 0 && testImageUrl ? "grid grid-cols-2 gap-6" : ""}>
+            {/* ── Paste (only when clipboard has content) ── */}
+            {ctxMenu.hasClipboard && (
+              <button
+                onClick={() => {
+                  const canvas = fabricRef.current
+                  const cb = clipboardRef.current
+                  if (canvas && cb) {
+                    ;(cb as any).clone().then((clone: FabricObject) => {
+                      clone.set({
+                        left: ((cb as any).left ?? 0) + 20,
+                        top:  ((cb as any).top  ?? 0) + 20,
+                      })
+                      canvas.add(clone)
+                      canvas.setActiveObject(clone)
+                      canvas.renderAll()
+                    })
+                  }
+                  setCtxMenu(null)
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-gray-50 transition text-left text-gray-700"
+              >
+                <span className="text-xs w-4 text-center">📋</span>
+                Paste
+              </button>
+            )}
 
-                {/* variable inputs + generate button */}
-                <div className="space-y-4">
-                  {Object.keys(testVars).length === 0 ? (
-                    <div className="text-center py-8">
-                      <p className="text-sm text-gray-500">
-                        No{" "}
-                        <code className="bg-gray-100 px-1 rounded text-xs font-mono">{"{{variables}}"}</code>{" "}
-                        found in this template.
-                      </p>
-                      <p className="text-xs text-gray-400 mt-2">
-                        Add text layers using{" "}
-                        <code className="bg-gray-100 px-1 rounded text-xs font-mono">{"{{variable_name}}"}</code>{" "}
-                        syntax to make them dynamic.
-                      </p>
-                    </div>
+            {/* ── Divider between clipboard actions and object actions ── */}
+            {ctxMenu.hasSelection && (
+              <div className="my-1 border-t border-gray-100" />
+            )}
+
+            {/* ── Object actions (only when something is selected) ── */}
+            {ctxMenu.hasSelection && (
+              <>
+                {([
+                  {
+                    label: "Bring to Front",
+                    icon: "⬆",
+                    action: () => {
+                      const c = fabricRef.current; const o = c?.getActiveObject()
+                      if (c && o) { c.bringObjectToFront(o); c.renderAll() }
+                    },
+                  },
+                  {
+                    label: "Send to Back",
+                    icon: "⬇",
+                    action: () => {
+                      const c = fabricRef.current; const o = c?.getActiveObject()
+                      if (c && o) { c.sendObjectToBack(o); c.renderAll() }
+                    },
+                  },
+                  {
+                    label: "Duplicate",
+                    icon: "⊞",
+                    action: () => { duplicateSelected() },
+                  },
+                  { label: "---", icon: "", action: null },
+                  {
+                    label: "Delete",
+                    icon: "🗑",
+                    danger: true,
+                    action: () => { deleteSelected() },
+                  },
+                ] as Array<{ label: string; icon: string; danger?: boolean; action: (() => void) | null }>).map((item, idx) =>
+                  item.label === "---" ? (
+                    <div key={idx} className="my-1 border-t border-gray-100" />
                   ) : (
-                    Object.keys(testVars).map((v) => (
-                      <div key={v}>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          <span className="font-mono text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded text-xs">{`{{${v}}}`}</span>
-                        </label>
-                        <input
-                          type="text"
-                          placeholder={`Value for ${v}…`}
-                          value={testVars[v]}
-                          onChange={(e) =>
-                            setTestVars((prev) => ({ ...prev, [v]: e.target.value }))
-                          }
-                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400"
-                        />
-                      </div>
-                    ))
-                  )}
-
-                  {testError && (
-                    <p className="text-sm text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-                      {testError}
-                    </p>
-                  )}
-
-                  <button
-                    disabled={testLoading}
-                    onClick={async () => {
-                      setTestLoading(true)
-                      setTestError("")
-                      setTestImageUrl(null)
-                      try {
-                        const res = await fetch(`/api/templates/${params.id}/preview`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ modifications: testVars }),
-                        })
-                        const data = await res.json()
-                        if (!res.ok || data.error) throw new Error(data.error || "Generation failed")
-                        setTestImageUrl(data.image_url)
-                      } catch (e: any) {
-                        setTestError(e.message || "Failed to generate preview")
-                      } finally {
-                        setTestLoading(false)
-                      }
-                    }}
-                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-60 text-white font-semibold py-2.5 text-sm transition"
-                  >
-                    {testLoading ? (
-                      <><Loader2 className="h-4 w-4 animate-spin" /> Generating…</>
-                    ) : (
-                      <><Play className="h-4 w-4" /> Generate Preview</>
-                    )}
-                  </button>
-                </div>
-
-                {/* preview image */}
-                {testImageUrl && (
-                  <div className="flex flex-col gap-3">
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Preview</p>
-                    <div className="rounded-xl overflow-hidden border border-gray-200 bg-gray-50">
-                      <img src={testImageUrl} alt="Generated preview" className="w-full h-auto" />
-                    </div>
-                    <a
-                      href={testImageUrl}
-                      download={`${templateName || "preview"}.png`}
-                      className="text-xs text-center text-violet-600 hover:text-violet-700 font-medium"
+                    <button
+                      key={idx}
+                      onClick={() => { item.action?.(); setCtxMenu(null) }}
+                      className={`w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-gray-50 transition text-left ${item.danger ? "text-red-600 hover:bg-red-50" : "text-gray-700"}`}
                     >
-                      ↓ Download image
-                    </a>
-                  </div>
+                      <span className="text-xs w-4 text-center">{item.icon}</span>
+                      {item.label}
+                    </button>
+                  )
                 )}
-              </div>
-            </div>
+              </>
+            )}
           </div>
-        </div>
+        </>
       )}
+
+      {/* hidden file input for image upload */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleImageUpload}
+      />
     </div>
   )
 }

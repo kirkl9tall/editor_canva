@@ -55,27 +55,119 @@ export async function generateImage({
   // Inject Fabric.js UMD build from local node_modules (no network required)
   await page.addScriptTag({ path: FABRIC_JS_PATH })
 
-  // Set up canvas, load JSON, render — fabric v6 loadFromJSON returns a Promise
+  // Set up canvas, load JSON, apply modifications, render
   await page.evaluate(
-    (canvasData: object, w: number, h: number) => {
+    async (canvasData: object, w: number, h: number, mods: Record<string, string>) => {
       const f = (window as any).fabric
+
+      /** Apply name-based modifications to canvas objects.
+       *  - text / textbox / i-text  → set obj.text
+       *  - image                    → setSrc + scale to maintain original bounding box
+       */
+      /** Recursively walk objects (enters fabric.Group children too). */
+      function walkObjects(canvas: any, cb: (o: any) => void): void {
+        function walk(obj: any) {
+          cb(obj)
+          if (obj.type === "group" && Array.isArray(obj._objects)) {
+            obj._objects.forEach(walk)
+          }
+        }
+        canvas.getObjects().forEach(walk)
+      }
+
+      async function applyModifications(
+        canvas: any,
+        modifications: Record<string, string>
+      ): Promise<void> {
+        const imagePromises: Promise<void>[] = []
+
+        walkObjects(canvas, (obj: any) => {
+          if (!obj.name || !(obj.name in modifications)) return
+          const val = modifications[obj.name]
+          const t: string = obj.type
+
+          // ── TEXT ───────────────────────────────────────────────────────────
+          if (t === "text" || t === "textbox" || t === "i-text") {
+            obj.set("text", val)
+
+            // Shrink-to-fit: reduce fontSize until text fits within box width
+            if (obj.__shrinkToFit) {
+              const maxW = (obj.width ?? 0) * (obj.scaleX ?? 1)
+              while (obj.fontSize > 6) {
+                // calcTextWidth is available on fabric text objects
+                const tw: number = obj.calcTextWidth?.() ?? 0
+                if (tw <= maxW) break
+                obj.set("fontSize", obj.fontSize - 1)
+              }
+            }
+
+          // ── IMAGE ──────────────────────────────────────────────────────────
+          } else if (t === "image") {
+            const bboxW = (obj.width ?? 0) * (obj.scaleX ?? 1)
+            const bboxH = (obj.height ?? 0) * (obj.scaleY ?? 1)
+            const scalingMode: string = obj.__imgScaling ?? "fill"
+
+            imagePromises.push(
+              obj.setSrc(val, { crossOrigin: "anonymous" }).then(() => {
+                const natW: number = obj.width || 1
+                const natH: number = obj.height || 1
+
+                if (scalingMode === "fill") {
+                  // Stretch to fill the bounding box exactly
+                  obj.set({ scaleX: bboxW / natW, scaleY: bboxH / natH, clipPath: undefined })
+
+                } else if (scalingMode === "cover") {
+                  // Scale uniformly so the image COVERS the box (no letterbox),
+                  // then clip to the box so no overflow is visible.
+                  const scale = Math.max(bboxW / natW, bboxH / natH)
+                  obj.set({
+                    scaleX: scale,
+                    scaleY: scale,
+                    // Re-anchor so the image is centred inside its original position
+                    originX: "center",
+                    originY: "center",
+                    left: (obj.left ?? 0) + bboxW / 2,
+                    top:  (obj.top  ?? 0) + bboxH / 2,
+                    clipPath: new (window as any).fabric.Rect({
+                      width:   bboxW / scale,
+                      height:  bboxH / scale,
+                      originX: "center",
+                      originY: "center",
+                    }),
+                  })
+
+                } else {
+                  // contain — scale uniformly so the image FITS inside the box
+                  const scale = Math.min(bboxW / natW, bboxH / natH)
+                  obj.set({ scaleX: scale, scaleY: scale, clipPath: undefined })
+                }
+              })
+            )
+          }
+        })
+
+        await Promise.all(imagePromises)
+      }
+
       const canvas = new f.Canvas("canvas", {
         width: w,
         height: h,
         backgroundColor: "#ffffff",
         renderOnAddRemove: false,
       })
-      return canvas.loadFromJSON(canvasData).then(() => {
+      try {
+        await canvas.loadFromJSON(canvasData)
+        await applyModifications(canvas, mods)
         canvas.renderAll()
-        ;(window as any).canvasReady = true
-      }).catch(() => {
+      } catch {
         canvas.renderAll()
-        ;(window as any).canvasReady = true
-      })
+      }
+      ;(window as any).canvasReady = true
     },
     processedCanvas,
     width,
-    height
+    height,
+    variables  // passed for name-based modifications (images + direct text slots)
   )
 
   // Give up to 10s for the evaluate + render to finish

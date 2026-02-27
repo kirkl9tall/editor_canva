@@ -74,8 +74,10 @@ function Modal({
 }
 
 const PRESETS = [
+  { label: "Feed Square", w: 1200, h: 1200 },
   { label: "Instagram Post", w: 1080, h: 1080 },
   { label: "Instagram Story", w: 1080, h: 1920 },
+  { label: "Pinterest Pin", w: 1000, h: 1500 },
   { label: "Twitter/X Post", w: 1200, h: 675 },
   { label: "LinkedIn Banner", w: 1584, h: 396 },
   { label: "Open Graph", w: 1200, h: 630 },
@@ -85,23 +87,25 @@ const PRESETS = [
 const PRESET_CATEGORIES = ["All", "Social Media", "Ads & Display", "Print", "Email", "Presentations"]
 
 const PRESET_TEMPLATES = [
-  { id: "ig-post",       name: "Instagram Post",   category: "Social Media",    w: 1080, h: 1080, img: "https://picsum.photos/seed/igpost/320/320" },
-  { id: "ig-story",      name: "Instagram Story",  category: "Social Media",    w: 1080, h: 1920, img: "https://picsum.photos/seed/igstory/180/320" },
-  { id: "tw-post",       name: "Twitter/X Post",   category: "Social Media",    w: 1200, h: 675,  img: "https://picsum.photos/seed/tweet/320/180" },
-  { id: "fb-post",       name: "Facebook Post",    category: "Social Media",    w: 1200, h: 630,  img: "https://picsum.photos/seed/fbpost/320/168" },
-  { id: "li-post",       name: "LinkedIn Post",    category: "Social Media",    w: 1200, h: 627,  img: "https://picsum.photos/seed/lipost/320/167" },
-  { id: "li-banner",     name: "LinkedIn Banner",  category: "Social Media",    w: 1584, h: 396,  img: "https://picsum.photos/seed/libanner/400/100" },
-  { id: "og-image",      name: "Open Graph",       category: "Ads & Display",   w: 1200, h: 630,  img: "https://picsum.photos/seed/ogimg/320/168" },
-  { id: "leaderboard",   name: "Leaderboard",      category: "Ads & Display",   w: 728,  h: 90,   img: "https://picsum.photos/seed/leader/400/49" },
-  { id: "medium-rect",   name: "Medium Rectangle", category: "Ads & Display",   w: 300,  h: 250,  img: "https://picsum.photos/seed/medrect/320/267" },
-  { id: "fb-ad",         name: "Facebook Ad",      category: "Ads & Display",   w: 1080, h: 1080, img: "https://picsum.photos/seed/fbad2/320/320" },
-  { id: "a4-doc",        name: "A4 Document",      category: "Print",           w: 794,  h: 1123, img: "https://picsum.photos/seed/a4doc/226/320" },
-  { id: "business-card", name: "Business Card",    category: "Print",           w: 1050, h: 600,  img: "https://picsum.photos/seed/bizcard/320/183" },
-  { id: "poster-a3",     name: "Poster A3",        category: "Print",           w: 1123, h: 1587, img: "https://picsum.photos/seed/postera3/226/320" },
-  { id: "email-header",  name: "Email Header",     category: "Email",           w: 600,  h: 200,  img: "https://picsum.photos/seed/emailhdr/320/107" },
-  { id: "email-banner",  name: "Email Banner",     category: "Email",           w: 600,  h: 300,  img: "https://picsum.photos/seed/emailbnr/320/160" },
-  { id: "slide-169",     name: "Slide 16:9",       category: "Presentations",   w: 1920, h: 1080, img: "https://picsum.photos/seed/slide169/320/180" },
-  { id: "slide-43",      name: "Slide 4:3",        category: "Presentations",   w: 1024, h: 768,  img: "https://picsum.photos/seed/slide43/320/240" },
+  { id: "feed-square", name: "Feed Square", category: "Social Media", w: 1200, h: 1200, img: "https://picsum.photos/seed/feedsquare/320/320" },
+  { id: "ig-post", name: "Instagram Post", category: "Social Media", w: 1080, h: 1080, img: "https://picsum.photos/seed/igpost/320/320" },
+  { id: "ig-story", name: "Instagram Story", category: "Social Media", w: 1080, h: 1920, img: "https://picsum.photos/seed/igstory/180/320" },
+  { id: "pinterest", name: "Pinterest Pin", category: "Social Media", w: 1000, h: 1500, img: "https://picsum.photos/seed/pinterest/213/320" },
+  { id: "tw-post", name: "Twitter/X Post", category: "Social Media", w: 1200, h: 675, img: "https://picsum.photos/seed/tweet/320/180" },
+  { id: "fb-post", name: "Facebook Post", category: "Social Media", w: 1200, h: 630, img: "https://picsum.photos/seed/fbpost/320/168" },
+  { id: "li-post", name: "LinkedIn Post", category: "Social Media", w: 1200, h: 627, img: "https://picsum.photos/seed/lipost/320/167" },
+  { id: "li-banner", name: "LinkedIn Banner", category: "Social Media", w: 1584, h: 396, img: "https://picsum.photos/seed/libanner/400/100" },
+  { id: "og-image", name: "Open Graph", category: "Ads & Display", w: 1200, h: 630, img: "https://picsum.photos/seed/ogimg/320/168" },
+  { id: "leaderboard", name: "Leaderboard", category: "Ads & Display", w: 728, h: 90, img: "https://picsum.photos/seed/leader/400/49" },
+  { id: "medium-rect", name: "Medium Rectangle", category: "Ads & Display", w: 300, h: 250, img: "https://picsum.photos/seed/medrect/320/267" },
+  { id: "fb-ad", name: "Facebook Ad", category: "Ads & Display", w: 1080, h: 1080, img: "https://picsum.photos/seed/fbad2/320/320" },
+  { id: "a4-doc", name: "A4 Document", category: "Print", w: 794, h: 1123, img: "https://picsum.photos/seed/a4doc/226/320" },
+  { id: "business-card", name: "Business Card", category: "Print", w: 1050, h: 600, img: "https://picsum.photos/seed/bizcard/320/183" },
+  { id: "poster-a3", name: "Poster A3", category: "Print", w: 1123, h: 1587, img: "https://picsum.photos/seed/postera3/226/320" },
+  { id: "email-header", name: "Email Header", category: "Email", w: 600, h: 200, img: "https://picsum.photos/seed/emailhdr/320/107" },
+  { id: "email-banner", name: "Email Banner", category: "Email", w: 600, h: 300, img: "https://picsum.photos/seed/emailbnr/320/160" },
+  { id: "slide-169", name: "Slide 16:9", category: "Presentations", w: 1920, h: 1080, img: "https://picsum.photos/seed/slide169/320/180" },
+  { id: "slide-43", name: "Slide 4:3", category: "Presentations", w: 1024, h: 768, img: "https://picsum.photos/seed/slide43/320/240" },
 ]
 
 export default function TemplatesPage() {
@@ -375,119 +379,119 @@ export default function TemplatesPage() {
               )
             }
             return (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filtered.map((template) => {
-            const isConfirming = deleteConfirmId === template.id
-            const isDeleting = deletingId === template.id
-            const previewThumb = (
-              <div className="aspect-video bg-muted rounded-md mb-4 flex items-center justify-center overflow-hidden">
-                {template.previewUrl ? (
-                  <img src={template.previewUrl} alt={template.name} className="w-full h-full object-cover rounded-md" />
-                ) : (
-                  <FileText className="h-12 w-12 text-muted-foreground" />
-                )}
-              </div>
-            )
-            return (
-              <div key={template.id} className="relative group">
-                {/* hover action buttons */}
-                {!isConfirming && (
-                  <div className="absolute top-2 right-2 z-10 flex gap-1 opacity-0 group-hover:opacity-100 transition">
-                    <button
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDuplicateTemplate(template.id) }}
-                      disabled={duplicatingId === template.id}
-                      className="p-1.5 rounded-lg bg-white shadow-sm border border-gray-200 hover:bg-violet-50 hover:border-violet-200 hover:text-violet-600 text-gray-400 disabled:opacity-50"
-                      title="Duplicate template"
-                    >
-                      {duplicatingId === template.id
-                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        : <CopyPlus className="h-3.5 w-3.5" />}
-                    </button>
-                    <button
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteConfirmId(template.id) }}
-                      className="p-1.5 rounded-lg bg-white shadow-sm border border-gray-200 hover:bg-red-50 hover:border-red-200 hover:text-red-500 text-gray-400"
-                      title="Delete template"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                )}
-
-                {isConfirming ? (
-                  <Card className="border-red-200 shadow-sm">
-                    <CardHeader>
-                      {previewThumb}
-                      <CardTitle className="text-base">{template.name}</CardTitle>
-                      <CardDescription>
-                        {template.project.name} · {template.width} × {template.height}px
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="pt-0 pb-4">
-                      <div className="flex items-center gap-2 p-3 bg-red-50 rounded-lg border border-red-100">
-                        <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />
-                        <span className="text-sm text-red-700 flex-1">Delete this template?</span>
-                        <button
-                          onClick={() => handleDeleteTemplate(template.id)}
-                          disabled={isDeleting}
-                          className="text-xs font-semibold text-red-600 hover:text-red-700 disabled:opacity-50 whitespace-nowrap"
-                        >
-                          {isDeleting ? "Deleting…" : "Yes, delete"}
-                        </button>
-                        <button
-                          onClick={() => setDeleteConfirmId(null)}
-                          className="text-xs text-gray-500 hover:text-gray-700 ml-1"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <Link href={`/dashboard/editor/${template.id}`}>
-                    <Card className="hover:shadow-lg transition-shadow cursor-pointer group">
-                      <CardHeader>
-                        {previewThumb}
-                        <div className="flex items-center justify-between">
-                          {editingId === template.id ? (
-                            <input
-                              value={editingName}
-                              autoFocus
-                              className="text-base font-semibold border border-violet-400 rounded px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-violet-300 w-full mr-2"
-                              onChange={(e) => setEditingName(e.target.value)}
-                              onBlur={() => handleRenameTemplate(template.id, editingName)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") handleRenameTemplate(template.id, editingName)
-                                if (e.key === "Escape") setEditingId(null)
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                            />
-                          ) : (
-                            <CardTitle
-                              className="text-base cursor-text select-none"
-                              title="Double-click to rename"
-                              onClick={(e) => e.stopPropagation()}
-                              onDoubleClick={(e) => {
-                                e.stopPropagation()
-                                setEditingId(template.id)
-                                setEditingName(template.name)
-                              }}
-                            >
-                              {template.name}
-                            </CardTitle>
-                          )}
-                          <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition shrink-0" />
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {filtered.map((template) => {
+                  const isConfirming = deleteConfirmId === template.id
+                  const isDeleting = deletingId === template.id
+                  const previewThumb = (
+                    <div className="aspect-video bg-muted rounded-md mb-4 flex items-center justify-center overflow-hidden">
+                      {template.previewUrl ? (
+                        <img src={template.previewUrl} alt={template.name} className="w-full h-full object-cover rounded-md" />
+                      ) : (
+                        <FileText className="h-12 w-12 text-muted-foreground" />
+                      )}
+                    </div>
+                  )
+                  return (
+                    <div key={template.id} className="relative group">
+                      {/* hover action buttons */}
+                      {!isConfirming && (
+                        <div className="absolute top-2 right-2 z-10 flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                          <button
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDuplicateTemplate(template.id) }}
+                            disabled={duplicatingId === template.id}
+                            className="p-1.5 rounded-lg bg-white shadow-sm border border-gray-200 hover:bg-violet-50 hover:border-violet-200 hover:text-violet-600 text-gray-400 disabled:opacity-50"
+                            title="Duplicate template"
+                          >
+                            {duplicatingId === template.id
+                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              : <CopyPlus className="h-3.5 w-3.5" />}
+                          </button>
+                          <button
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteConfirmId(template.id) }}
+                            className="p-1.5 rounded-lg bg-white shadow-sm border border-gray-200 hover:bg-red-50 hover:border-red-200 hover:text-red-500 text-gray-400"
+                            title="Delete template"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
                         </div>
-                        <CardDescription>
-                          {template.project.name} · {template.width} × {template.height}px
-                        </CardDescription>
-                      </CardHeader>
-                    </Card>
-                  </Link>
-                )}
+                      )}
+
+                      {isConfirming ? (
+                        <Card className="border-red-200 shadow-sm">
+                          <CardHeader>
+                            {previewThumb}
+                            <CardTitle className="text-base">{template.name}</CardTitle>
+                            <CardDescription>
+                              {template.project.name} · {template.width} × {template.height}px
+                            </CardDescription>
+                          </CardHeader>
+                          <CardContent className="pt-0 pb-4">
+                            <div className="flex items-center gap-2 p-3 bg-red-50 rounded-lg border border-red-100">
+                              <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />
+                              <span className="text-sm text-red-700 flex-1">Delete this template?</span>
+                              <button
+                                onClick={() => handleDeleteTemplate(template.id)}
+                                disabled={isDeleting}
+                                className="text-xs font-semibold text-red-600 hover:text-red-700 disabled:opacity-50 whitespace-nowrap"
+                              >
+                                {isDeleting ? "Deleting…" : "Yes, delete"}
+                              </button>
+                              <button
+                                onClick={() => setDeleteConfirmId(null)}
+                                className="text-xs text-gray-500 hover:text-gray-700 ml-1"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ) : (
+                        <Link href={`/dashboard/editor/${template.id}`}>
+                          <Card className="hover:shadow-lg transition-shadow cursor-pointer group">
+                            <CardHeader>
+                              {previewThumb}
+                              <div className="flex items-center justify-between">
+                                {editingId === template.id ? (
+                                  <input
+                                    value={editingName}
+                                    autoFocus
+                                    className="text-base font-semibold border border-violet-400 rounded px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-violet-300 w-full mr-2"
+                                    onChange={(e) => setEditingName(e.target.value)}
+                                    onBlur={() => handleRenameTemplate(template.id, editingName)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") handleRenameTemplate(template.id, editingName)
+                                      if (e.key === "Escape") setEditingId(null)
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                ) : (
+                                  <CardTitle
+                                    className="text-base cursor-text select-none"
+                                    title="Double-click to rename"
+                                    onClick={(e) => e.stopPropagation()}
+                                    onDoubleClick={(e) => {
+                                      e.stopPropagation()
+                                      setEditingId(template.id)
+                                      setEditingName(template.name)
+                                    }}
+                                  >
+                                    {template.name}
+                                  </CardTitle>
+                                )}
+                                <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition shrink-0" />
+                              </div>
+                              <CardDescription>
+                                {template.project.name} · {template.width} × {template.height}px
+                              </CardDescription>
+                            </CardHeader>
+                          </Card>
+                        </Link>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
-            )
-          })}
-        </div>
             )
           })()}
         </>
@@ -532,11 +536,10 @@ export default function TemplatesPage() {
                 key={tab}
                 type="button"
                 onClick={() => setNewTemplateTab(tab)}
-                className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                  newTemplateTab === tab
+                className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${newTemplateTab === tab
                     ? "border-violet-600 text-violet-700"
                     : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
+                  }`}
               >
                 {tab === "presets" ? "🗂  Presets" : "✏️  Custom Size"}
               </button>
@@ -553,11 +556,10 @@ export default function TemplatesPage() {
                     key={cat}
                     type="button"
                     onClick={() => setPresetCategory(cat)}
-                    className={`w-full text-left px-4 py-2 text-sm transition-colors ${
-                      presetCategory === cat
+                    className={`w-full text-left px-4 py-2 text-sm transition-colors ${presetCategory === cat
                         ? "bg-white text-violet-700 font-medium border-r-2 border-violet-500"
                         : "text-muted-foreground hover:bg-white hover:text-foreground"
-                    }`}
+                      }`}
                   >
                     {cat}
                   </button>
@@ -582,11 +584,10 @@ export default function TemplatesPage() {
                             setTemplateName(preset.name)
                           }
                         }}
-                        className={`text-left rounded-xl border overflow-hidden transition-all ${
-                          isSelected
+                        className={`text-left rounded-xl border overflow-hidden transition-all ${isSelected
                             ? "border-violet-500 ring-2 ring-violet-300 shadow-sm"
                             : "border-border hover:border-violet-300 hover:shadow-sm"
-                        }`}
+                          }`}
                       >
                         <div className="bg-gray-100 overflow-hidden" style={{ height: 70 }}>
                           <img
@@ -618,11 +619,10 @@ export default function TemplatesPage() {
                     key={preset.label}
                     type="button"
                     onClick={() => { setCanvasW(preset.w); setCanvasH(preset.h); setSelectedPresetId(null) }}
-                    className={`text-left px-2.5 py-2 rounded-lg border text-xs leading-tight transition ${
-                      canvasW === preset.w && canvasH === preset.h
+                    className={`text-left px-2.5 py-2 rounded-lg border text-xs leading-tight transition ${canvasW === preset.w && canvasH === preset.h
                         ? "border-primary bg-primary/5 text-primary font-medium"
                         : "border-border hover:border-primary/50 text-muted-foreground hover:text-foreground"
-                    }`}
+                      }`}
                   >
                     <div className="font-medium">{preset.label}</div>
                     <div className="opacity-60 mt-0.5">{preset.w}×{preset.h}</div>
