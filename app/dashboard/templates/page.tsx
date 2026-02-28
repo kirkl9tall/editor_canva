@@ -10,6 +10,7 @@ import {
 import { Plus, FileText, Folder, X, ChevronRight, Loader2, Trash2, AlertTriangle, Search, ChevronDown as SortIcon, CopyPlus, Pencil, Copy, Check } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { PRESET_CANVAS_DATA } from "@/lib/template-presets"
 
 interface Template {
   id: string
@@ -214,6 +215,9 @@ export default function TemplatesPage() {
           projectId: selectedProjectId,
           width: canvasW,
           height: canvasH,
+          ...(selectedPresetId && PRESET_CANVAS_DATA[selectedPresetId]
+            ? { canvasJson: PRESET_CANVAS_DATA[selectedPresetId] }
+            : {}),
         }),
       })
       if (!res.ok) throw new Error()
@@ -539,167 +543,231 @@ export default function TemplatesPage() {
       )}
 
       {showTemplateDialog && (
-        <Modal
-          title="New Template"
-          onClose={() => setShowTemplateDialog(false)}
-          size="xl"
-          contentClassName="p-0"
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={(e) => e.currentTarget === e.target && setShowTemplateDialog(false)}
         >
-          {/* ── Tabs ───────────────────────────────────── */}
-          <div className="flex px-6 pt-3 pb-0 gap-1 border-b">
-            {(["presets", "custom"] as const).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setNewTemplateTab(tab)}
-                className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${newTemplateTab === tab
-                    ? "border-violet-600 text-violet-700"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                  }`}
-              >
-                {tab === "presets" ? "🗂  Presets" : "✏️  Custom Size"}
-              </button>
-            ))}
-          </div>
+          <div className="w-full max-w-6xl flex overflow-hidden rounded-2xl shadow-2xl" style={{ height: "85vh" }}>
 
-          {/* ── Presets tab ─────────────────────────────── */}
-          {newTemplateTab === "presets" && (
-            <div className="flex border-b" style={{ height: 336 }}>
-              {/* Left: category sidebar */}
-              <div className="w-40 shrink-0 border-r bg-gray-50 overflow-y-auto py-2">
-                {PRESET_CATEGORIES.map((cat) => (
+            {/* ── Left Sidebar (dark purple) ─────────────────── */}
+            <div className="w-60 shrink-0 bg-[#1e0a3c] flex flex-col p-5">
+              {/* Header */}
+              <div className="mb-5">
+                <p className="text-[10px] font-black tracking-widest uppercase text-white/40 mb-0.5">Renderify</p>
+                <h2 className="text-white text-lg font-black tracking-tight">New Template</h2>
+              </div>
+
+              {/* Tab pills */}
+              <div className="flex gap-1 bg-white/10 p-1 rounded-xl mb-5">
+                {(["presets", "custom"] as const).map((tab) => (
                   <button
-                    key={cat}
+                    key={tab}
                     type="button"
-                    onClick={() => setPresetCategory(cat)}
-                    className={`w-full text-left px-4 py-2 text-sm transition-colors ${presetCategory === cat
-                        ? "bg-white text-violet-700 font-medium border-r-2 border-violet-500"
-                        : "text-muted-foreground hover:bg-white hover:text-foreground"
-                      }`}
+                    onClick={() => setNewTemplateTab(tab)}
+                    className={`flex-1 py-1.5 text-[11px] font-black rounded-lg transition-all ${
+                      newTemplateTab === tab
+                        ? "bg-white text-indigo-900 shadow-sm"
+                        : "text-white/60 hover:text-white"
+                    }`}
                   >
-                    {cat}
+                    {tab === "presets" ? "PRESETS" : "CUSTOM"}
                   </button>
                 ))}
               </div>
-              {/* Right: preset card grid */}
-              <div className="flex-1 overflow-y-auto p-3">
-                <div className="grid grid-cols-3 gap-2.5">
-                  {PRESET_TEMPLATES.filter(
-                    (p) => presetCategory === "All" || p.category === presetCategory
-                  ).map((preset) => {
-                    const isSelected = selectedPresetId === preset.id
-                    return (
+
+              {/* Presets: category filters */}
+              {newTemplateTab === "presets" && (
+                <div className="flex-1 overflow-y-auto">
+                  <p className="text-[10px] font-black tracking-widest text-white/40 uppercase mb-2">Sizes</p>
+                  <div className="space-y-0.5">
+                    {PRESET_CATEGORIES.map((cat) => (
                       <button
-                        key={preset.id}
+                        key={cat}
                         type="button"
-                        onClick={() => {
-                          setSelectedPresetId(preset.id)
-                          setCanvasW(preset.w)
-                          setCanvasH(preset.h)
-                          if (!templateName || PRESET_TEMPLATES.some((p) => p.name === templateName)) {
-                            setTemplateName(preset.name)
-                          }
-                        }}
-                        className={`text-left rounded-xl border overflow-hidden transition-all ${isSelected
-                            ? "border-violet-500 ring-2 ring-violet-300 shadow-sm"
-                            : "border-border hover:border-violet-300 hover:shadow-sm"
-                          }`}
+                        onClick={() => setPresetCategory(cat)}
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-black transition-all ${
+                          presetCategory === cat
+                            ? "bg-white/15 text-white"
+                            : "text-white/55 hover:text-white hover:bg-white/8"
+                        }`}
                       >
-                        <div className="bg-gray-100 overflow-hidden" style={{ height: 70 }}>
+                        <span>{cat}</span>
+                        <span className="text-[9px] text-white/30 font-normal tabular-nums">
+                          {PRESET_TEMPLATES.filter((p) => cat === "All" || p.category === cat).length}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Custom: quick sizes + inputs */}
+              {newTemplateTab === "custom" && (
+                <div className="flex-1 overflow-y-auto space-y-1">
+                  <p className="text-[10px] font-black tracking-widest text-white/40 uppercase mb-2">Quick Sizes</p>
+                  {PRESETS.map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => { setCanvasW(preset.w); setCanvasH(preset.h); setSelectedPresetId(null) }}
+                      className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs transition-all ${
+                        canvasW === preset.w && canvasH === preset.h
+                          ? "bg-white/15 text-white font-black"
+                          : "text-white/55 hover:text-white hover:bg-white/8 font-medium"
+                      }`}
+                    >
+                      <span>{preset.label}</span>
+                      <span className="text-[9px] text-white/30 tabular-nums">{preset.w}×{preset.h}</span>
+                    </button>
+                  ))}
+                  <div className="pt-4 space-y-2">
+                    <p className="text-[10px] font-black tracking-widest text-white/40 uppercase">Custom px</p>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number" min={1} max={8000} value={canvasW}
+                        onChange={(e) => { setCanvasW(Number(e.target.value)); setSelectedPresetId(null) }}
+                        placeholder="Width"
+                        className="flex-1 min-w-0 bg-white/10 border border-white/10 rounded-lg px-2.5 py-1.5 text-sm text-white outline-none focus:ring-2 focus:ring-violet-400 tabular-nums"
+                      />
+                      <span className="text-white/30 text-xs shrink-0">×</span>
+                      <input
+                        type="number" min={1} max={8000} value={canvasH}
+                        onChange={(e) => { setCanvasH(Number(e.target.value)); setSelectedPresetId(null) }}
+                        placeholder="Height"
+                        className="flex-1 min-w-0 bg-white/10 border border-white/10 rounded-lg px-2.5 py-1.5 text-sm text-white outline-none focus:ring-2 focus:ring-violet-400 tabular-nums"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Close */}
+              <button
+                onClick={() => setShowTemplateDialog(false)}
+                className="mt-4 flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-black text-white/35 hover:text-white/70 transition-colors"
+              >
+                <X className="h-3.5 w-3.5" /> Close
+              </button>
+            </div>
+
+            {/* ── Right content (white) ─────────────────────── */}
+            <div className="flex-1 bg-white flex flex-col overflow-hidden">
+
+              {/* Scrollable grid */}
+              <div className="flex-1 overflow-y-auto p-6">
+                {newTemplateTab === "presets" ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {PRESET_TEMPLATES.filter(
+                      (p) => presetCategory === "All" || p.category === presetCategory
+                    ).map((preset) => {
+                      const isSelected = selectedPresetId === preset.id
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedPresetId(preset.id)
+                            setCanvasW(preset.w)
+                            setCanvasH(preset.h)
+                            if (!templateName || PRESET_TEMPLATES.some((p) => p.name === templateName)) {
+                              setTemplateName(preset.name)
+                            }
+                          }}
+                          className={`relative aspect-square rounded-xl overflow-hidden border transition-all duration-200 group ${
+                            isSelected
+                              ? "border-violet-500 ring-2 ring-violet-400 shadow-lg"
+                              : "border-gray-100 hover:shadow-lg hover:scale-[1.02] hover:border-violet-200"
+                          }`}
+                        >
                           <img
                             src={preset.img}
                             alt={preset.name}
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                             loading="lazy"
                           />
-                        </div>
-                        <div className="px-2 py-1.5">
-                          <div className="text-xs font-medium leading-snug truncate">{preset.name}</div>
-                          <div className="text-[10px] text-muted-foreground">{preset.w}×{preset.h}</div>
-                        </div>
-                      </button>
-                    )
-                  })}
-                </div>
+                          {/* name on hover */}
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent pt-8 pb-2 px-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
+                            <p className="text-white text-[11px] font-black leading-tight truncate">{preset.name}</p>
+                          </div>
+                          {/* dimension pill */}
+                          <span className="absolute bottom-2 right-2 bg-white/90 backdrop-blur-sm text-indigo-700 text-[9px] font-black px-1.5 py-0.5 rounded shadow-sm pointer-events-none">
+                            {preset.w}×{preset.h}
+                          </span>
+                          {isSelected && (
+                            <span className="absolute top-2 left-2 bg-violet-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm pointer-events-none">
+                              ✓ Selected
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  /* Custom: live canvas preview */
+                  <div className="flex flex-col items-center justify-center h-full gap-4">
+                    <div
+                      className="bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl flex items-center justify-center transition-all duration-300"
+                      style={{
+                        width: Math.min(400, Math.round(400 * Math.min(canvasW / Math.max(canvasH, 1), 1))),
+                        height: Math.min(400, Math.round(400 * Math.min(canvasH / Math.max(canvasW, 1), 1))),
+                        minWidth: 80,
+                        minHeight: 60,
+                      }}
+                    >
+                      <div className="text-center p-4">
+                        <p className="text-2xl font-black text-gray-300 tabular-nums">{canvasW} × {canvasH}</p>
+                        <p className="text-xs text-gray-400 mt-1">pixels</p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-400">Adjust dimensions in the sidebar</p>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
 
-          {/* ── Custom tab ───────────────────────────────── */}
-          {newTemplateTab === "custom" && (
-            <div className="px-6 pt-4 pb-2 space-y-3">
-              <Label className="text-sm">Canvas size</Label>
-              <div className="grid grid-cols-3 gap-1.5">
-                {PRESETS.map((preset) => (
+              {/* ── Bottom action bar ── */}
+              <form onSubmit={handleCreateTemplate} className="bg-gray-50 border-t border-gray-100 px-5 py-3.5">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <input
+                    placeholder="Template name…"
+                    value={templateName}
+                    onChange={(e) => setTemplateName(e.target.value)}
+                    autoFocus={newTemplateTab === "custom"}
+                    className="flex-1 min-w-[160px] border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400 bg-white"
+                  />
+                  {projects.length > 1 && (
+                    <select
+                      className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-violet-400 shrink-0"
+                      value={selectedProjectId}
+                      onChange={(e) => setSelectedProjectId(e.target.value)}
+                    >
+                      {projects.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  )}
+                  <span className="text-[11px] text-gray-400 tabular-nums shrink-0 hidden sm:block">{canvasW} × {canvasH} px</span>
+                  {templateError && <p className="text-sm text-red-500 w-full order-last">{templateError}</p>}
                   <button
-                    key={preset.label}
                     type="button"
-                    onClick={() => { setCanvasW(preset.w); setCanvasH(preset.h); setSelectedPresetId(null) }}
-                    className={`text-left px-2.5 py-2 rounded-lg border text-xs leading-tight transition ${canvasW === preset.w && canvasH === preset.h
-                        ? "border-primary bg-primary/5 text-primary font-medium"
-                        : "border-border hover:border-primary/50 text-muted-foreground hover:text-foreground"
-                      }`}
+                    onClick={() => setShowTemplateDialog(false)}
+                    className="px-4 py-2 rounded-full border border-gray-200 bg-white hover:bg-gray-100 text-xs font-black text-gray-600 transition-colors shrink-0"
                   >
-                    <div className="font-medium">{preset.label}</div>
-                    <div className="opacity-60 mt-0.5">{preset.w}×{preset.h}</div>
+                    Cancel
                   </button>
-                ))}
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="flex-1 space-y-1">
-                  <Label className="text-xs text-muted-foreground">Width (px)</Label>
-                  <Input type="number" min={1} max={8000} value={canvasW} onChange={(e) => setCanvasW(Number(e.target.value))} />
+                  <button
+                    type="submit"
+                    disabled={savingTemplate}
+                    className="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-[#a78bfa] hover:bg-violet-500 text-white text-xs font-black transition-colors disabled:opacity-60 shadow-sm shrink-0"
+                  >
+                    {savingTemplate && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                    + CREATE
+                  </button>
                 </div>
-                <span className="mt-5 text-muted-foreground">×</span>
-                <div className="flex-1 space-y-1">
-                  <Label className="text-xs text-muted-foreground">Height (px)</Label>
-                  <Input type="number" min={1} max={8000} value={canvasH} onChange={(e) => setCanvasH(Number(e.target.value))} />
-                </div>
-              </div>
-            </div>
-          )}
+              </form>
 
-          {/* ── Footer (always visible) ───────────────────── */}
-          <form onSubmit={handleCreateTemplate} className="px-6 pt-4 pb-6 space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="template-name">Template name</Label>
-              <Input
-                id="template-name"
-                placeholder="e.g. Product Launch Card"
-                value={templateName}
-                onChange={(e) => setTemplateName(e.target.value)}
-                autoFocus={newTemplateTab === "custom"}
-              />
             </div>
-            {projects.length > 1 && (
-              <div className="space-y-1.5">
-                <Label>Project</Label>
-                <select
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={selectedProjectId}
-                  onChange={(e) => setSelectedProjectId(e.target.value)}
-                >
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            {templateError && <p className="text-sm text-red-500">{templateError}</p>}
-            <div className="flex items-center justify-between gap-2 pt-1">
-              <span className="text-xs text-muted-foreground tabular-nums">
-                {canvasW} × {canvasH} px
-              </span>
-              <div className="flex gap-2">
-                <button type="button" onClick={() => setShowTemplateDialog(false)} className="px-4 py-2 rounded-full border border-gray-200 bg-white hover:bg-gray-50 text-xs font-black text-gray-700 transition-colors">Cancel</button>
-                <button type="submit" disabled={savingTemplate} className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-violet-600 hover:bg-violet-700 text-white text-xs font-black transition-colors disabled:opacity-60">
-                  {savingTemplate && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  Create &amp; Open Editor
-                </button>
-              </div>
-            </div>
-          </form>
-        </Modal>
+          </div>
+        </div>
       )}
     </>
   )

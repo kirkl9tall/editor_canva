@@ -37,8 +37,11 @@ import {
   Download,
   Lock,
   Maximize2,
+  GripVertical,
+  ChevronUp,
+  SquareDashed,
 } from "lucide-react"
-import { Canvas, IText, Rect, Circle, FabricImage, type FabricObject } from "fabric"
+import { Canvas, IText, Rect, Circle, FabricImage, Shadow, filters as FabricFilters, type FabricObject } from "fabric"
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -129,7 +132,8 @@ function ToolbarBtn({
   )
 }
 
-function LayerIcon({ type }: { type: string | undefined }) {
+function LayerIcon({ type, isPlaceholder }: { type: string | undefined; isPlaceholder?: boolean }) {
+  if (isPlaceholder) return <SquareDashed className="h-3 w-3 text-violet-400 shrink-0" />
   if (type === "i-text" || type === "text") return <Type className="h-3 w-3 text-gray-400 shrink-0" />
   if (type === "image") return <ImageIcon className="h-3 w-3 text-gray-400 shrink-0" />
   if (type === "rect") return <Square className="h-3 w-3 text-gray-400 shrink-0" />
@@ -153,6 +157,7 @@ export default function EditorPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const fabricRef = useRef<Canvas | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const dragSrcIdxRef = useRef<number | null>(null)
 
   const [template, setTemplate] = useState<Template | null>(null)
   const [templateName, setTemplateName] = useState("")
@@ -169,6 +174,8 @@ export default function EditorPage() {
   const [imgDpi, setImgDpi] = useState<"72" | "96" | "150" | "300">("96")
   const [pdfQuality, setPdfQuality] = useState(90)
   const [pdfDpi, setPdfDpi] = useState<"72" | "96" | "150" | "300">("150")
+  // incremented instead of spreading Fabric objects — keeps prototype intact
+  const [revision, setRevision] = useState(0)
 
   // ── test modal state ─────────────────────────────────────────────────────
   const [showTestModal, setShowTestModal] = useState(false)
@@ -196,6 +203,7 @@ export default function EditorPage() {
     selectedObject?.type === "rect" || selectedObject?.type === "circle"
   const isImage = selectedObject?.type === "image"
   const obj = selectedObject as any
+  const isFrame = isShape && !!(obj?.isPlaceholder)
 
   // ── load template ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -225,12 +233,50 @@ export default function EditorPage() {
 
     const updateLayers = () => setLayers([...(canvas.getObjects() ?? [])])
 
+    const bumpRevision = () => setRevision((r) => r + 1)
     canvas.on("object:added", updateLayers)
     canvas.on("object:removed", updateLayers)
-    canvas.on("object:modified", updateLayers)
-    canvas.on("selection:created", (e) => setSelectedObject(e.selected?.[0] ?? null))
-    canvas.on("selection:updated", (e) => setSelectedObject(e.selected?.[0] ?? null))
+    canvas.on("object:modified", () => { updateLayers(); bumpRevision() })
+    canvas.on("object:scaling", bumpRevision)
+    canvas.on("object:moving", bumpRevision)
+    canvas.on("object:rotating", bumpRevision)
+    canvas.on("selection:created", (e) => { setSelectedObject(e.selected?.[0] ?? null); bumpRevision() })
+    canvas.on("selection:updated", (e) => { setSelectedObject(e.selected?.[0] ?? null); bumpRevision() })
     canvas.on("selection:cleared", () => setSelectedObject(null))
+
+    // Double-click: fill Image Frame placeholder or swap image
+    canvas.on("mouse:dblclick", async (e: any) => {
+      const target = e.target as any
+      if (!target) return
+      // Let Fabric handle double-click on text objects natively
+      if (target.type === "i-text" || target.type === "text") return
+      if (target.isPlaceholder || target.type === "image") {
+        const url = prompt("Enter image URL:")
+        if (!url) return
+        try {
+          const newImg = await FabricImage.fromURL(url, { crossOrigin: "anonymous" })
+          const targetW = (target.width ?? 100) * (target.scaleX ?? 1)
+          const targetH = (target.height ?? 100) * (target.scaleY ?? 1)
+          const imgW = newImg.width ?? 1
+          const imgH = newImg.height ?? 1
+          // Fit/contain: scale to fill the frame while preserving aspect ratio
+          const scale = Math.min(targetW / imgW, targetH / imgH)
+          const scaledW = imgW * scale
+          const scaledH = imgH * scale
+          newImg.scale(scale)
+          newImg.set({
+            left: (target.left ?? 0) + (targetW - scaledW) / 2,
+            top: (target.top ?? 0) + (targetH - scaledH) / 2,
+          })
+          canvas.remove(target)
+          canvas.add(newImg)
+          canvas.setActiveObject(newImg)
+          canvas.renderAll()
+        } catch {
+          alert("Failed to load image. Check the URL is publicly accessible.")
+        }
+      }
+    })
 
     // Load saved canvas state — await so objects are present before syncing layers
     if (template.canvasJson && Object.keys(template.canvasJson).length > 0) {
@@ -362,7 +408,7 @@ export default function EditorPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: templateName,
-          canvasJson: canvas.toJSON(),
+          canvasJson: canvas.toJSON(["isPlaceholder"]),
           previewUrl,
         }),
       })
@@ -418,23 +464,48 @@ export default function EditorPage() {
     } catch { alert("Failed to load image") }
   }
 
+  function addImageFrame() {
+    const canvas = fabricRef.current
+    if (!canvas) return
+    const frame = new Rect({
+      left: 80,
+      top: 80,
+      width: 240,
+      height: 160,
+      fill: "rgba(139,92,246,0.06)",
+      stroke: "#7c3aed",
+      strokeWidth: 2,
+      strokeDashArray: [8, 4],
+      rx: 6,
+      ry: 6,
+    })
+    ;(frame as any).isPlaceholder = true
+    canvas.add(frame)
+    canvas.setActiveObject(frame)
+    canvas.renderAll()
+  }
+
   // ── property update ────────────────────────────────────────────────────────
   function updateProp(key: string, value: any) {
     const canvas = fabricRef.current
-    if (!canvas || !selectedObject) return
-      ; (selectedObject as any).set(key, value)
+    if (!canvas) return
+    const activeObj = canvas.getActiveObject()
+    if (!activeObj) return
+    activeObj.set(key as any, value)
     canvas.renderAll()
-    setSelectedObject({ ...selectedObject } as any) // force re-render
+    setRevision((r) => r + 1) // bump without spreading — keeps Fabric prototype intact
   }
 
   // ── alignment ──────────────────────────────────────────────────────────────
   function alignObject(dir: "left" | "right" | "centerH" | "top" | "bottom" | "centerV") {
     const canvas = fabricRef.current
-    if (!canvas || !selectedObject) return
+    if (!canvas) return
+    const activeObj = canvas.getActiveObject() as any
+    if (!activeObj) return
     const cw = template?.width ?? 800
     const ch = template?.height ?? 600
-    const ow = (obj.width ?? 0) * (obj.scaleX ?? 1)
-    const oh = (obj.height ?? 0) * (obj.scaleY ?? 1)
+    const ow = (activeObj.width ?? 0) * (activeObj.scaleX ?? 1)
+    const oh = (activeObj.height ?? 0) * (activeObj.scaleY ?? 1)
     const pos = {
       left: { left: 0 },
       right: { left: cw - ow },
@@ -443,25 +514,32 @@ export default function EditorPage() {
       bottom: { top: ch - oh },
       centerV: { top: (ch - oh) / 2 },
     }[dir]
-    selectedObject.set(pos)
+    activeObj.set(pos)
     canvas.renderAll()
   }
 
   function duplicateSelected() {
     const canvas = fabricRef.current
-    if (!canvas || !selectedObject) return
-      ; (selectedObject as any).clone().then((clone: FabricObject) => {
-        ; (clone as any).set({ left: (obj.left ?? 0) + 20, top: (obj.top ?? 0) + 20 })
-        canvas.add(clone)
-        canvas.setActiveObject(clone)
-        canvas.renderAll()
+    if (!canvas) return
+    const activeObj = canvas.getActiveObject()
+    if (!activeObj) return
+    ;(activeObj as any).clone().then((clone: FabricObject) => {
+      ;(clone as any).set({
+        left: ((activeObj as any).left ?? 0) + 20,
+        top: ((activeObj as any).top ?? 0) + 20,
       })
+      canvas.add(clone)
+      canvas.setActiveObject(clone)
+      canvas.renderAll()
+    })
   }
 
   function deleteSelected() {
     const canvas = fabricRef.current
-    if (!canvas || !selectedObject) return
-    canvas.remove(selectedObject)
+    if (!canvas) return
+    const activeObj = canvas.getActiveObject()
+    if (!activeObj) return
+    canvas.remove(activeObj)
     canvas.renderAll()
   }
 
@@ -482,11 +560,153 @@ export default function EditorPage() {
 
   function getLayerName(o: FabricObject) {
     const a = o as any
+    if (a.isPlaceholder) return "Image Frame"
     if (o.type === "i-text" || o.type === "text") return `Text: ${String(a.text ?? "").substring(0, 18)}`
     if (o.type === "image") return "Image"
     if (o.type === "rect") return "Rectangle"
     if (o.type === "circle") return "Circle"
     return o.type ?? "Object"
+  }
+
+  // ── shadow ─────────────────────────────────────────────────────────────
+  function applyShadow(props: { enabled?: boolean; color?: string; blur?: number; offsetX?: number; offsetY?: number }) {
+    const canvas = fabricRef.current
+    if (!canvas) return
+    const activeObj = canvas.getActiveObject() as any
+    if (!activeObj) return
+    const cur = activeObj.shadow as any
+    const nowEnabled = props.enabled !== undefined ? props.enabled : !!cur
+    if (!nowEnabled) {
+      activeObj.set("shadow", null)
+    } else {
+      activeObj.set("shadow", new Shadow({
+        color: props.color ?? cur?.color ?? "rgba(0,0,0,0.5)",
+        blur: props.blur !== undefined ? props.blur : (cur?.blur ?? 10),
+        offsetX: props.offsetX !== undefined ? props.offsetX : (cur?.offsetX ?? 5),
+        offsetY: props.offsetY !== undefined ? props.offsetY : (cur?.offsetY ?? 5),
+      }))
+    }
+    canvas.renderAll()
+    setRevision((r) => r + 1)
+  }
+
+  // ── image filters ──────────────────────────────────────────────────────
+  function applyImageFilters(opts: { grayscale?: boolean; blur?: number; brightness?: number }) {
+    const canvas = fabricRef.current
+    if (!canvas) return
+    const activeObj = canvas.getActiveObject() as any
+    if (!activeObj || activeObj.type !== "image") return
+    let next: any[] = [...(activeObj.filters ?? [])]
+    if (opts.grayscale !== undefined) {
+      next = next.filter((f: any) => f.type !== "Grayscale")
+      if (opts.grayscale) next.push(new FabricFilters.Grayscale())
+    }
+    if (opts.blur !== undefined) {
+      next = next.filter((f: any) => f.type !== "Blur")
+      if (opts.blur > 0) next.push(new FabricFilters.Blur({ blur: opts.blur }))
+    }
+    if (opts.brightness !== undefined) {
+      next = next.filter((f: any) => f.type !== "Brightness")
+      if (opts.brightness !== 0) next.push(new FabricFilters.Brightness({ brightness: opts.brightness }))
+    }
+    activeObj.filters = next
+    activeObj.applyFilters()
+    canvas.renderAll()
+    setRevision((r) => r + 1)
+  }
+
+  // ── image corner radius via clipPath ───────────────────────────────────
+  function applyImageCornerRadius(radius: number) {
+    const canvas = fabricRef.current
+    if (!canvas) return
+    const activeObj = canvas.getActiveObject() as any
+    if (!activeObj || activeObj.type !== "image") return
+    if (radius <= 0) {
+      activeObj.set("clipPath", undefined)
+    } else {
+      activeObj.set("clipPath", new Rect({
+        width: activeObj.width,
+        height: activeObj.height,
+        rx: radius,
+        ry: radius,
+        originX: "center",
+        originY: "center",
+      }))
+    }
+    canvas.renderAll()
+    setRevision((r) => r + 1)
+  }
+
+  // ── replace the currently-selected image ───────────────────────────────
+  async function replaceSelectedImage() {
+    const canvas = fabricRef.current
+    if (!canvas) return
+    const activeObj = canvas.getActiveObject() as any
+    if (!activeObj || activeObj.type !== "image") return
+    const url = prompt("Enter new image URL:")
+    if (!url) return
+    try {
+      const newImg = await FabricImage.fromURL(url, { crossOrigin: "anonymous" })
+      newImg.set({
+        left: activeObj.left,
+        top: activeObj.top,
+        scaleX: activeObj.scaleX,
+        scaleY: activeObj.scaleY,
+        angle: activeObj.angle,
+        opacity: activeObj.opacity,
+      })
+      canvas.remove(activeObj)
+      canvas.add(newImg)
+      canvas.setActiveObject(newImg)
+      canvas.renderAll()
+    } catch {
+      alert("Failed to load image. Check the URL is publicly accessible.")
+    }
+  }
+
+  function moveLayerUp(visualIdx: number) {
+    const canvas = fabricRef.current
+    if (!canvas) return
+    const objs = canvas.getObjects()
+    if (visualIdx <= 0) return // already topmost in the panel (highest z-index)
+    const canvasIdx = objs.length - 1 - visualIdx
+    const target = objs[canvasIdx]
+    if (!target) return
+    canvas.bringObjectForward(target)
+    canvas.renderAll()
+    setLayers([...(canvas.getObjects())])
+  }
+
+  function moveLayerDown(visualIdx: number) {
+    const canvas = fabricRef.current
+    if (!canvas) return
+    const objs = canvas.getObjects()
+    if (visualIdx >= objs.length - 1) return // already bottommost
+    const canvasIdx = objs.length - 1 - visualIdx
+    const target = objs[canvasIdx]
+    if (!target) return
+    canvas.sendObjectBackwards(target)
+    canvas.renderAll()
+    setLayers([...(canvas.getObjects())])
+  }
+
+  function moveLayerToIndex(fromVisualIdx: number, toVisualIdx: number) {
+    const canvas = fabricRef.current
+    if (!canvas || fromVisualIdx === toVisualIdx) return
+    const objs = canvas.getObjects()
+    const total = objs.length
+    const fromCanvasIdx = total - 1 - fromVisualIdx
+    const toCanvasIdx = total - 1 - toVisualIdx
+    const target = objs[fromCanvasIdx]
+    if (!target) return
+    const diff = toCanvasIdx - fromCanvasIdx
+    if (diff > 0) {
+      for (let i = 0; i < diff; i++) canvas.bringObjectForward(target)
+    } else {
+      for (let i = 0; i < -diff; i++) canvas.sendObjectBackwards(target)
+    }
+    canvas.renderAll()
+    setLayers([...(canvas.getObjects())])
   }
 
   // ─── render ────────────────────────────────────────────────────────────────
@@ -501,7 +721,29 @@ export default function EditorPage() {
     )
   }
 
+  // Re-read every time revision ticks so panels always reflect live Fabric state
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _rev = revision
+
   const fillColor = typeof obj?.fill === "string" ? obj.fill : "#000000"
+
+  // ── shadow derived values ────────────────────────────────────────────────
+  const _shadow = obj?.shadow as any
+  const shadowEnabled = !!_shadow
+  const shadowColor = _shadow?.color ?? "rgba(0,0,0,0.5)"
+  const shadowBlur = _shadow?.blur ?? 10
+  const shadowOffsetX = _shadow?.offsetX ?? 5
+  const shadowOffsetY = _shadow?.offsetY ?? 5
+
+  // ── image corner radius (from clipPath) ──────────────────────────────────
+  const _clip = isImage ? (obj?.clipPath as any) : null
+  const imgCornerRadius: number = _clip?.rx ?? 0
+
+  // ── image filter derived values ──────────────────────────────────────────
+  const _filters: any[] = isImage ? (obj?.filters ?? []) : []
+  const hasGrayscale = _filters.some((f: any) => f.type === "Grayscale")
+  const filterBlurVal: number = (_filters.find((f: any) => f.type === "Blur"))?.blur ?? 0
+  const filterBrightnessVal: number = (_filters.find((f: any) => f.type === "Brightness"))?.brightness ?? 0
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-gray-50">
@@ -606,8 +848,9 @@ export default function EditorPage() {
               { icon: Square, label: "Rect", action: addRect },
               { icon: CircleIcon, label: "Circle", action: addCircle },
               { icon: ImageIcon, label: "Image", action: addImageFromUrl },
-              { icon: LayoutGrid, label: "Grid", action: null as any },
+              { icon: SquareDashed, label: "Frame", action: addImageFrame },
               { icon: Star, label: "Rating", action: null as any },
+              { icon: LayoutGrid, label: "Grid", action: null as any },
             ].map(({ icon: Icon, label, action }) => (
               <button
                 key={label}
@@ -684,12 +927,18 @@ export default function EditorPage() {
                 <ToolbarBtn
                   icon={BringToFront}
                   title="Bring Forward"
-                  onClick={() => { fabricRef.current?.bringObjectForward(selectedObject); fabricRef.current?.renderAll() }}
+                  onClick={() => {
+                    const active = fabricRef.current?.getActiveObject()
+                    if (active) { fabricRef.current?.bringObjectForward(active); fabricRef.current?.renderAll() }
+                  }}
                 />
                 <ToolbarBtn
                   icon={SendToBack}
                   title="Send Backward"
-                  onClick={() => { fabricRef.current?.sendObjectBackwards(selectedObject); fabricRef.current?.renderAll() }}
+                  onClick={() => {
+                    const active = fabricRef.current?.getActiveObject()
+                    if (active) { fabricRef.current?.sendObjectBackwards(active); fabricRef.current?.renderAll() }
+                  }}
                 />
               </div>
               {/* Opacity */}
@@ -776,23 +1025,48 @@ export default function EditorPage() {
                 [...layers].reverse().map((o, i) => (
                   <div
                     key={i}
+                    draggable
+                    onDragStart={() => { dragSrcIdxRef.current = i }}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => { if (dragSrcIdxRef.current !== null) moveLayerToIndex(dragSrcIdxRef.current, i) }}
                     onClick={() => selectLayer(o)}
                     className={cn(
-                      "flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-violet-50 text-sm transition",
+                      "group flex items-center gap-1.5 px-2 py-1.5 cursor-pointer hover:bg-violet-50 transition select-none",
                       selectedObject === o && "bg-violet-50"
                     )}
                   >
-                    <LayerIcon type={o.type} />
-                    <span className={cn("flex-1 truncate text-xs", selectedObject === o ? "text-violet-700 font-medium" : "text-gray-700")}>
+                    <GripVertical className="h-3 w-3 text-gray-300 shrink-0 cursor-grab active:cursor-grabbing" />
+                    <LayerIcon type={o.type} isPlaceholder={(o as any).isPlaceholder} />
+                    <span className={cn(
+                      "flex-1 truncate text-xs",
+                      selectedObject === o ? "text-violet-700 font-medium" : "text-gray-700"
+                    )}>
                       {getLayerName(o)}
                     </span>
+                    {/* Up */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); moveLayerUp(i) }}
+                      title="Move up"
+                      className="p-0.5 rounded hover:bg-violet-200 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-violet-700 transition"
+                    >
+                      <ChevronUp className="h-3 w-3" />
+                    </button>
+                    {/* Down */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); moveLayerDown(i) }}
+                      title="Move down"
+                      className="p-0.5 rounded hover:bg-violet-200 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-violet-700 transition"
+                    >
+                      <ChevronDown className="h-3 w-3" />
+                    </button>
+                    {/* Visibility */}
                     <button
                       onClick={(e) => { e.stopPropagation(); toggleVisibility(o) }}
-                      className="p-1 hover:bg-gray-200 rounded opacity-0 group-hover:opacity-100 text-gray-400"
+                      title={o.visible !== false ? "Hide" : "Show"}
+                      className="p-0.5 rounded hover:bg-gray-200 opacity-0 group-hover:opacity-100 text-gray-400 transition"
                     >
-                      {o.visible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+                      {o.visible !== false ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
                     </button>
-                    <RefreshCw className="h-3 w-3 text-violet-300 shrink-0" aria-label="Dynamic layer" />
                   </div>
                 ))
               )}
@@ -948,8 +1222,14 @@ export default function EditorPage() {
 
           {/* SHAPE properties */}
           {isShape && (
-            <PanelSection title="Shape">
+            <PanelSection title={isFrame ? "Image Frame" : "Shape"}>
               <div className="px-3 py-3 space-y-3">
+                {isFrame && (
+                  <div className="flex items-center gap-2 bg-violet-50 border border-violet-100 rounded-lg px-3 py-2">
+                    <SquareDashed className="h-4 w-4 text-violet-500 shrink-0" />
+                    <p className="text-xs text-violet-700 leading-snug">Double-click the frame on the canvas to fill it with an image</p>
+                  </div>
+                )}
                 <div>
                   <label className="text-[10px] font-medium text-gray-400 mb-1 block uppercase tracking-wide">Fill Color</label>
                   <div className="flex gap-2">
@@ -988,14 +1268,149 @@ export default function EditorPage() {
           {/* IMAGE properties */}
           {isImage && (
             <PanelSection title="Image">
-              <div className="px-3 py-3">
+              <div className="px-3 py-3 space-y-3">
                 <button
-                  onClick={addImageFromUrl}
-                  className="w-full border-2 border-dashed border-gray-200 rounded-lg py-5 text-xs text-gray-400 hover:border-violet-400 hover:text-violet-500 transition flex flex-col items-center gap-1"
+                  onClick={replaceSelectedImage}
+                  className="w-full border-2 border-dashed border-gray-200 rounded-lg py-4 text-xs text-gray-400 hover:border-violet-400 hover:text-violet-500 transition flex flex-col items-center gap-1"
                 >
                   <ImageIcon className="h-5 w-5" />
-                  Replace image URL
+                  Replace image
                 </button>
+                <div>
+                  <label className="text-[10px] font-medium text-gray-400 mb-1.5 block uppercase tracking-wide">
+                    Corner Radius — {imgCornerRadius}px
+                  </label>
+                  <input
+                    type="range" min={0} max={200}
+                    value={imgCornerRadius}
+                    onChange={(e) => applyImageCornerRadius(Number(e.target.value))}
+                    className="w-full accent-violet-600"
+                  />
+                </div>
+              </div>
+            </PanelSection>
+          )}
+
+          {/* IMAGE FILTERS — only when an image is selected */}
+          {isImage && (
+            <PanelSection title="Filters" defaultOpen={false}>
+              <div className="px-3 py-3 space-y-3">
+                {/* Grayscale */}
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-gray-700">Grayscale</label>
+                  <button
+                    onClick={() => applyImageFilters({ grayscale: !hasGrayscale })}
+                    className={cn(
+                      "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
+                      hasGrayscale ? "bg-violet-600" : "bg-gray-200"
+                    )}
+                  >
+                    <span className={cn(
+                      "inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform",
+                      hasGrayscale ? "translate-x-[18px]" : "translate-x-0.5"
+                    )} />
+                  </button>
+                </div>
+                {/* Blur */}
+                <div>
+                  <label className="text-[10px] font-medium text-gray-400 mb-1.5 block uppercase tracking-wide">
+                    Blur — {filterBlurVal.toFixed(2)}
+                  </label>
+                  <input
+                    type="range" min={0} max={1} step={0.01}
+                    value={filterBlurVal}
+                    onChange={(e) => applyImageFilters({ blur: Number(e.target.value) })}
+                    className="w-full accent-violet-600"
+                  />
+                </div>
+                {/* Brightness */}
+                <div>
+                  <label className="text-[10px] font-medium text-gray-400 mb-1.5 block uppercase tracking-wide">
+                    Brightness — {filterBrightnessVal > 0 ? "+" : ""}{filterBrightnessVal.toFixed(2)}
+                  </label>
+                  <input
+                    type="range" min={-1} max={1} step={0.01}
+                    value={filterBrightnessVal}
+                    onChange={(e) => applyImageFilters({ brightness: Number(e.target.value) })}
+                    className="w-full accent-violet-600"
+                  />
+                </div>
+              </div>
+            </PanelSection>
+          )}
+
+          {/* EFFECTS (shadow) — shown for any selected object */}
+          {selectedObject && (
+            <PanelSection title="Effects" defaultOpen={false}>
+              <div className="px-3 py-3 space-y-3">
+                {/* Shadow toggle */}
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-gray-700">Drop Shadow</label>
+                  <button
+                    onClick={() => applyShadow({ enabled: !shadowEnabled })}
+                    className={cn(
+                      "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
+                      shadowEnabled ? "bg-violet-600" : "bg-gray-200"
+                    )}
+                  >
+                    <span className={cn(
+                      "inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform",
+                      shadowEnabled ? "translate-x-[18px]" : "translate-x-0.5"
+                    )} />
+                  </button>
+                </div>
+                {shadowEnabled && (
+                  <>
+                    <div>
+                      <label className="text-[10px] font-medium text-gray-400 mb-1 block uppercase tracking-wide">Shadow Color</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="color"
+                          value={shadowColor.startsWith("#") ? shadowColor : "#000000"}
+                          onChange={(e) => applyShadow({ enabled: true, color: e.target.value })}
+                          className="h-9 w-10 cursor-pointer rounded border border-gray-200 p-0.5 shrink-0"
+                        />
+                        <input
+                          type="text"
+                          value={shadowColor}
+                          onChange={(e) => applyShadow({ enabled: true, color: e.target.value })}
+                          className="flex-1 border border-gray-200 rounded-md px-2 py-1.5 text-sm font-mono outline-none focus:ring-1 focus:ring-violet-400"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-medium text-gray-400 mb-1.5 block uppercase tracking-wide">
+                        Blur — {shadowBlur}px
+                      </label>
+                      <input
+                        type="range" min={0} max={60}
+                        value={shadowBlur}
+                        onChange={(e) => applyShadow({ enabled: true, blur: Number(e.target.value) })}
+                        className="w-full accent-violet-600"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] font-medium text-gray-400 mb-1 block uppercase tracking-wide">Offset X</label>
+                        <input
+                          type="number" min={-50} max={50}
+                          value={shadowOffsetX}
+                          onChange={(e) => applyShadow({ enabled: true, offsetX: Number(e.target.value) })}
+                          className="w-full border border-gray-200 rounded-md px-2 py-1.5 text-xs text-center focus:ring-1 focus:ring-violet-400 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-medium text-gray-400 mb-1 block uppercase tracking-wide">Offset Y</label>
+                        <input
+                          type="number" min={-50} max={50}
+                          value={shadowOffsetY}
+                          onChange={(e) => applyShadow({ enabled: true, offsetY: Number(e.target.value) })}
+                          className="w-full border border-gray-200 rounded-md px-2 py-1.5 text-xs text-center focus:ring-1 focus:ring-violet-400 outline-none"
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </PanelSection>
           )}

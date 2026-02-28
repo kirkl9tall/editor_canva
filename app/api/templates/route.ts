@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const { name, projectId, width = 1200, height = 630 } = body
+    const { name, projectId, width = 1200, height = 630, canvasJson } = body
 
     if (!name || !projectId) {
       return NextResponse.json(
@@ -63,14 +63,14 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Create template with empty canvas
+    // Create template — use starter-kit JSON if provided, otherwise blank canvas
     const template = await db.template.create({
       data: {
         name,
         projectId,
         width,
         height,
-        canvasJson: {
+        canvasJson: canvasJson ?? {
           version: "6.5.1",
           objects: [],
         },
