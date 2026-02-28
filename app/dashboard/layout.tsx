@@ -18,7 +18,7 @@ export default async function DashboardLayout({
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
       <DashboardSidebar email={session.user.email ?? ""} />
-      <main className="flex-1 p-6 lg:p-8 min-w-0">{children}</main>
+      <main className="flex-1 p-6 lg:p-8 min-w-0 bg-slate-50 min-h-screen">{children}</main>
     </div>
   )
 }

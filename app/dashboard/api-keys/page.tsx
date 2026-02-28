@@ -48,6 +48,21 @@ export default function ApiKeysPage() {
   const [newKeyValue, setNewKeyValue] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
+  // keys created in this tab — backed by sessionStorage so navigation doesn't clear them
+  const [sessionKeys, setSessionKeys] = useState<Map<string, string>>(() => {
+    if (typeof window === "undefined") return new Map()
+    const m = new Map<string, string>()
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i)
+      if (k?.startsWith("rfy_key_")) {
+        m.set(k.slice(8), sessionStorage.getItem(k)!)
+      }
+    }
+    return m
+  })
+  // per-row copy confirmation
+  const [rowCopied, setRowCopied] = useState<string | null>(null)
+
   // create dialog
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [keyName, setKeyName] = useState("")
@@ -85,6 +100,9 @@ export default function ApiKeysPage() {
       })
       if (!res.ok) throw new Error()
       const data = await res.json()
+      // keep full value in sessionStorage for this tab so Copy works after navigation
+      sessionStorage.setItem(`rfy_key_${data.apiKey.id}`, data.apiKey.key)
+      setSessionKeys((prev) => new Map(prev).set(data.apiKey.id, data.apiKey.key))
       setNewKeyValue(data.apiKey.key)   // show full key once
       setCopied(false)
       setShowCreateDialog(false)
@@ -100,6 +118,8 @@ export default function ApiKeysPage() {
     setDeleting(true)
     try {
       await fetch(`/api/api-keys/${id}`, { method: "DELETE" })
+      sessionStorage.removeItem(`rfy_key_${id}`)
+      setSessionKeys((prev) => { const m = new Map(prev); m.delete(id); return m })
       setConfirmDeleteId(null)
       await loadApiKeys()
     } catch {
@@ -113,6 +133,14 @@ export default function ApiKeysPage() {
     navigator.clipboard.writeText(key)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  function copyRowKey(id: string) {
+    const val = sessionKeys.get(id)
+    if (!val) return
+    navigator.clipboard.writeText(val)
+    setRowCopied(id)
+    setTimeout(() => setRowCopied(null), 2000)
   }
 
   function openCreate() {
@@ -202,6 +230,21 @@ export default function ApiKeysPage() {
                 </div>
 
                 <div className="flex items-center gap-2 ml-4 shrink-0">
+                  {/* ── Copy key button ── */}
+                  {confirmDeleteId !== k.id && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => copyRowKey(k.id)}
+                      disabled={!sessionKeys.has(k.id)}
+                      title={sessionKeys.has(k.id) ? "Copy API key" : "Full key only available in the session it was created"}
+                      className={sessionKeys.has(k.id) ? "text-gray-700" : "text-gray-300 cursor-not-allowed"}
+                    >
+                      {rowCopied === k.id
+                        ? <><Check className="mr-1.5 h-3.5 w-3.5 text-emerald-500" />Copied!</>
+                        : <><Copy className="mr-1.5 h-3.5 w-3.5" />Copy</>}
+                    </Button>
+                  )}
                   {confirmDeleteId === k.id ? (
                     <>
                       <span className="text-sm text-red-600 flex items-center gap-1">

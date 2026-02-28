@@ -1,17 +1,13 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from "@/components/ui/card"
-import { Plus, FileText, Folder, X, ChevronRight, Loader2, Trash2, AlertTriangle, Search, ChevronDown as SortIcon, CopyPlus } from "lucide-react"
+import { Plus, FileText, Folder, X, ChevronRight, Loader2, Trash2, AlertTriangle, Search, ChevronDown as SortIcon, CopyPlus, Pencil, Copy, Check } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 
@@ -59,10 +55,10 @@ function Modal({
     >
       <div className={`bg-white rounded-2xl shadow-2xl w-full ${size === "xl" ? "max-w-3xl" : "max-w-md"} mx-4 overflow-hidden`}>
         <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b">
-          <h2 className="text-lg font-semibold">{title}</h2>
+          <h2 className="text-lg font-black text-gray-900">{title}</h2>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition"
+            className="p-1.5 rounded-full hover:bg-gray-100 text-gray-500 transition"
           >
             <X className="h-4 w-4" />
           </button>
@@ -116,6 +112,7 @@ export default function TemplatesPage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState("")
   const [search, setSearch] = useState("")
@@ -284,20 +281,27 @@ export default function TemplatesPage() {
   return (
     <>
       <div className="mb-8">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-start justify-between mb-4 gap-4">
           <div>
-            <h1 className="text-3xl font-bold">Templates</h1>
-            <p className="text-muted-foreground">Create and manage your image templates</p>
+            <p className="text-[10px] text-gray-400 font-bold tracking-widest uppercase mb-1">Dashboard • Templates</p>
+            <h1 className="text-4xl font-black tracking-tight text-gray-900">Templates</h1>
+            <p className="text-gray-500 text-sm mt-0.5">Create and manage your image templates</p>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={openProjectDialog}>
-              <Folder className="mr-2 h-4 w-4" />
-              New Project
-            </Button>
-            <Button onClick={openTemplateDialog}>
-              <Plus className="mr-2 h-4 w-4" />
-              New Template
-            </Button>
+          <div className="flex gap-2 mt-1 shrink-0">
+            <button
+              type="button"
+              onClick={openProjectDialog}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-full border border-gray-200 bg-white hover:bg-gray-50 text-xs font-black text-gray-700 transition-colors"
+            >
+              <Folder className="h-3.5 w-3.5" /> New Project
+            </button>
+            <button
+              type="button"
+              onClick={openTemplateDialog}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-violet-600 hover:bg-violet-700 text-white text-xs font-black transition-colors"
+            >
+              <Plus className="h-3.5 w-3.5" /> New Template
+            </button>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -308,14 +312,14 @@ export default function TemplatesPage() {
               placeholder="Search templates…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-sm border border-input rounded-lg bg-background outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400"
+              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl bg-white shadow-sm outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400 transition-shadow"
             />
           </div>
           <div className="relative">
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as "newest" | "oldest" | "az")}
-              className="appearance-none pl-3 pr-8 py-2 text-sm border border-input rounded-lg bg-background outline-none focus:ring-2 focus:ring-violet-400 cursor-pointer"
+              className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-xl bg-white shadow-sm outline-none focus:ring-2 focus:ring-violet-400 cursor-pointer"
             >
               <option value="newest">Newest</option>
               <option value="oldest">Oldest</option>
@@ -329,7 +333,7 @@ export default function TemplatesPage() {
       {projects.length > 0 && (
         <div className="flex gap-2 flex-wrap mb-6">
           {projects.map((p) => (
-            <span key={p.id} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted text-sm text-muted-foreground border">
+            <span key={p.id} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white text-xs font-black text-gray-600 border border-gray-200 shadow-sm">
               <Folder className="h-3 w-3" />
               {p.name}
             </span>
@@ -338,24 +342,26 @@ export default function TemplatesPage() {
       )}
 
       {templates.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-16">
-            <FileText className="h-16 w-16 text-muted-foreground mb-4" />
-            <h3 className="text-xl font-semibold mb-2">No templates yet</h3>
-            <p className="text-muted-foreground mb-6">
+        <Card className="rounded-2xl ring-1 ring-black/5 border-0 shadow-sm">
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <div className="rounded-2xl bg-violet-50 p-5 mb-5">
+              <FileText className="h-10 w-10 text-violet-400" />
+            </div>
+            <h3 className="text-xl font-semibold mb-2 text-gray-900">No templates yet</h3>
+            <p className="text-gray-500 mb-6 max-w-xs">
               {projects.length === 0
                 ? "Create a project first, then add your first template"
                 : "Create your first template to get started"}
             </p>
             <div className="flex gap-2">
               {projects.length === 0 && (
-                <Button variant="outline" onClick={openProjectDialog}>
-                  <Folder className="mr-2 h-4 w-4" />New Project
-                </Button>
+                <button type="button" onClick={openProjectDialog} className="flex items-center gap-1.5 px-4 py-2 rounded-full border border-gray-200 bg-white hover:bg-gray-50 text-xs font-black text-gray-700 transition-colors">
+                  <Folder className="h-3.5 w-3.5" /> New Project
+                </button>
               )}
-              <Button onClick={openTemplateDialog}>
-                <Plus className="mr-2 h-4 w-4" />Create Template
-              </Button>
+              <button type="button" onClick={openTemplateDialog} className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-violet-600 hover:bg-violet-700 text-white text-xs font-black transition-colors">
+                <Plus className="h-3.5 w-3.5" /> Create Template
+              </button>
             </div>
           </CardContent>
         </Card>
@@ -379,114 +385,124 @@ export default function TemplatesPage() {
               )
             }
             return (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="flex flex-col gap-2">
                 {filtered.map((template) => {
                   const isConfirming = deleteConfirmId === template.id
                   const isDeleting = deletingId === template.id
-                  const previewThumb = (
-                    <div className="aspect-video bg-muted rounded-md mb-4 flex items-center justify-center overflow-hidden">
-                      {template.previewUrl ? (
-                        <img src={template.previewUrl} alt={template.name} className="w-full h-full object-cover rounded-md" />
-                      ) : (
-                        <FileText className="h-12 w-12 text-muted-foreground" />
-                      )}
-                    </div>
-                  )
                   return (
-                    <div key={template.id} className="relative group">
-                      {/* hover action buttons */}
-                      {!isConfirming && (
-                        <div className="absolute top-2 right-2 z-10 flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                    <div
+                      key={template.id}
+                      className={`group flex items-center gap-4 p-4 bg-white rounded-xl border transition-all duration-300 ease-out ${
+                        isConfirming
+                          ? "border-red-200 ring-1 ring-red-100"
+                          : "border-gray-200 hover:border-violet-200 hover:shadow-md"
+                      }`}
+                    >
+                      {/* Preview */}
+                      <div className="shrink-0 w-20 h-14 rounded-lg bg-gray-50 overflow-hidden border border-gray-100 flex items-center justify-center">
+                        {template.previewUrl ? (
+                          <img src={template.previewUrl} alt={template.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <FileText className="h-5 w-5 text-gray-200" />
+                        )}
+                      </div>
+
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        {editingId === template.id ? (
+                          <input
+                            value={editingName}
+                            autoFocus
+                            className="text-sm font-black border border-violet-400 rounded-lg px-2 py-0.5 outline-none focus:ring-2 focus:ring-violet-300 w-full max-w-xs"
+                            onChange={(e) => setEditingName(e.target.value)}
+                            onBlur={() => handleRenameTemplate(template.id, editingName)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleRenameTemplate(template.id, editingName)
+                              if (e.key === "Escape") setEditingId(null)
+                            }}
+                          />
+                        ) : (
+                          <Link href={`/dashboard/editor/${template.id}`}>
+                            <h3
+                              className="text-sm font-black text-gray-900 truncate hover:text-violet-600 transition-colors cursor-pointer"
+                              title="Double-click to rename"
+                              onDoubleClick={(e) => {
+                                e.preventDefault()
+                                setEditingId(template.id)
+                                setEditingName(template.name)
+                              }}
+                            >
+                              {template.name}
+                            </h3>
+                          </Link>
+                        )}
+                        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                          <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-semibold">
+                            <Folder className="h-2.5 w-2.5" />{template.project.name}
+                          </span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 font-mono leading-4">
+                            {template.id.slice(0, 14)}
+                          </span>
+                          <span className="text-[10px] text-gray-400">{template.width}×{template.height}px</span>
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      {!isConfirming ? (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <Link href={`/dashboard/editor/${template.id}`}>
+                            <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-gray-50 hover:bg-gray-100 text-gray-700 text-[10px] font-black transition-colors">
+                              <Pencil className="h-3 w-3 text-violet-500" /> EDIT
+                            </span>
+                          </Link>
                           <button
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDuplicateTemplate(template.id) }}
+                            onClick={() => {
+                              navigator.clipboard.writeText(template.id)
+                              setCopiedId(template.id)
+                              setTimeout(() => setCopiedId(null), 2000)
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-gray-50 hover:bg-gray-100 text-gray-700 text-[10px] font-black transition-colors"
+                          >
+                            {copiedId === template.id
+                              ? <><Check className="h-3 w-3 text-emerald-500" /><span>COPIED</span></>
+                              : <><Copy className="h-3 w-3 text-violet-500" /><span>COPY ID</span></>}
+                          </button>
+                          <button
+                            onClick={() => handleDuplicateTemplate(template.id)}
                             disabled={duplicatingId === template.id}
-                            className="p-1.5 rounded-lg bg-white shadow-sm border border-gray-200 hover:bg-violet-50 hover:border-violet-200 hover:text-violet-600 text-gray-400 disabled:opacity-50"
-                            title="Duplicate template"
+                            className="p-1.5 rounded-full bg-gray-50 hover:bg-gray-100 text-gray-400 hover:text-violet-600 transition-colors disabled:opacity-50"
+                            title="Duplicate"
                           >
                             {duplicatingId === template.id
                               ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                               : <CopyPlus className="h-3.5 w-3.5" />}
                           </button>
                           <button
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteConfirmId(template.id) }}
-                            className="p-1.5 rounded-lg bg-white shadow-sm border border-gray-200 hover:bg-red-50 hover:border-red-200 hover:text-red-500 text-gray-400"
-                            title="Delete template"
+                            onClick={() => setDeleteConfirmId(template.id)}
+                            className="p-1.5 rounded-full bg-gray-50 hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
+                            title="Delete"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
-                      )}
-
-                      {isConfirming ? (
-                        <Card className="border-red-200 shadow-sm">
-                          <CardHeader>
-                            {previewThumb}
-                            <CardTitle className="text-base">{template.name}</CardTitle>
-                            <CardDescription>
-                              {template.project.name} · {template.width} × {template.height}px
-                            </CardDescription>
-                          </CardHeader>
-                          <CardContent className="pt-0 pb-4">
-                            <div className="flex items-center gap-2 p-3 bg-red-50 rounded-lg border border-red-100">
-                              <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />
-                              <span className="text-sm text-red-700 flex-1">Delete this template?</span>
-                              <button
-                                onClick={() => handleDeleteTemplate(template.id)}
-                                disabled={isDeleting}
-                                className="text-xs font-semibold text-red-600 hover:text-red-700 disabled:opacity-50 whitespace-nowrap"
-                              >
-                                {isDeleting ? "Deleting…" : "Yes, delete"}
-                              </button>
-                              <button
-                                onClick={() => setDeleteConfirmId(null)}
-                                className="text-xs text-gray-500 hover:text-gray-700 ml-1"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </CardContent>
-                        </Card>
                       ) : (
-                        <Link href={`/dashboard/editor/${template.id}`}>
-                          <Card className="hover:shadow-lg transition-shadow cursor-pointer group">
-                            <CardHeader>
-                              {previewThumb}
-                              <div className="flex items-center justify-between">
-                                {editingId === template.id ? (
-                                  <input
-                                    value={editingName}
-                                    autoFocus
-                                    className="text-base font-semibold border border-violet-400 rounded px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-violet-300 w-full mr-2"
-                                    onChange={(e) => setEditingName(e.target.value)}
-                                    onBlur={() => handleRenameTemplate(template.id, editingName)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") handleRenameTemplate(template.id, editingName)
-                                      if (e.key === "Escape") setEditingId(null)
-                                    }}
-                                    onClick={(e) => e.stopPropagation()}
-                                  />
-                                ) : (
-                                  <CardTitle
-                                    className="text-base cursor-text select-none"
-                                    title="Double-click to rename"
-                                    onClick={(e) => e.stopPropagation()}
-                                    onDoubleClick={(e) => {
-                                      e.stopPropagation()
-                                      setEditingId(template.id)
-                                      setEditingName(template.name)
-                                    }}
-                                  >
-                                    {template.name}
-                                  </CardTitle>
-                                )}
-                                <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition shrink-0" />
-                              </div>
-                              <CardDescription>
-                                {template.project.name} · {template.width} × {template.height}px
-                              </CardDescription>
-                            </CardHeader>
-                          </Card>
-                        </Link>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />
+                          <span className="text-xs font-black text-red-700">Delete?</span>
+                          <button
+                            onClick={() => handleDeleteTemplate(template.id)}
+                            disabled={isDeleting}
+                            className="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-xs font-black text-red-600 hover:text-red-700 disabled:opacity-50 transition-colors"
+                          >
+                            {isDeleting ? "…" : "Yes"}
+                          </button>
+                          <button
+                            onClick={() => setDeleteConfirmId(null)}
+                            className="px-2.5 py-1 rounded-lg bg-gray-50 hover:bg-gray-100 text-xs font-black text-gray-500 hover:text-gray-700 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
                       )}
                     </div>
                   )
@@ -512,11 +528,11 @@ export default function TemplatesPage() {
               {projectError && <p className="text-sm text-red-500">{projectError}</p>}
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" onClick={() => setShowProjectDialog(false)}>Cancel</Button>
-              <Button type="submit" disabled={savingProject}>
-                {savingProject && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              <button type="button" onClick={() => setShowProjectDialog(false)} className="px-4 py-2 rounded-full border border-gray-200 bg-white hover:bg-gray-50 text-xs font-black text-gray-700 transition-colors">Cancel</button>
+              <button type="submit" disabled={savingProject} className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-violet-600 hover:bg-violet-700 text-white text-xs font-black transition-colors disabled:opacity-60">
+                {savingProject && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 Create Project
-              </Button>
+              </button>
             </div>
           </form>
         </Modal>
@@ -675,11 +691,11 @@ export default function TemplatesPage() {
                 {canvasW} × {canvasH} px
               </span>
               <div className="flex gap-2">
-                <Button type="button" variant="outline" onClick={() => setShowTemplateDialog(false)}>Cancel</Button>
-                <Button type="submit" disabled={savingTemplate}>
-                  {savingTemplate && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Create & Open Editor
-                </Button>
+                <button type="button" onClick={() => setShowTemplateDialog(false)} className="px-4 py-2 rounded-full border border-gray-200 bg-white hover:bg-gray-50 text-xs font-black text-gray-700 transition-colors">Cancel</button>
+                <button type="submit" disabled={savingTemplate} className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-violet-600 hover:bg-violet-700 text-white text-xs font-black transition-colors disabled:opacity-60">
+                  {savingTemplate && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Create &amp; Open Editor
+                </button>
               </div>
             </div>
           </form>
